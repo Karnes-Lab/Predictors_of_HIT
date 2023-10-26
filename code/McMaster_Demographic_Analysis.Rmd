@@ -1,0 +1,646 @@
+---
+title: "McMaster Demographic Analysis"
+author: "Jason Giles"
+date: "2023-06-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Installing packages and reading in data
+```{r}
+library(pscl)
+library(tidyverse)
+library(MESS)
+library(haven)
+library(here)
+library(psych)
+library(skimr)
+library(DataExplorer)
+library(visdat)
+library(mdscore)
+library(oddsratio)
+library(ppcor)
+library(corrplot)
+library(corrr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(Hmisc)
+library(RColorBrewer)
+library(reshape2)
+library(PupillometryR)
+library(corrplot)
+library(corrr)
+library(MASS)
+library(bestNormalize)
+library(readxl)
+library(car)
+library(tableone)
+library(olsrr)
+library(MASS)
+library(cutpointr)
+library(car)
+library(OptimalCutpoints)
+library(lmtest)
+library(pROC)
+library(pastecs)
+library(dplyr)
+library(readr)
+library(here)
+
+
+here()
+
+raw_mcmaster_dataset <- read_csv(here("../all_HIT_Nov29.csv"))
+
+# Renaming variables to removed quotes
+
+raw_mcmaster_dataset <- dplyr::rename(raw_mcmaster_dataset, new_abo = "new ABO IDs", sample_year = 'Sample Year', age = 'AGE at HIT-trunc', 
+                       call_for_abo = 'CALL FOR ABO', SRA = 'SRA call', IgG = 'EIA-G', IgP = "GTI-GAM")
+```
+### Exploring & Cleaning of the data 
+
+```{r}
+summary(raw_mcmaster_dataset)
+skim(raw_mcmaster_dataset)
+
+# Creating data so variables are factor levels instead of numeric 
+raw_mcmaster_dataset$SEX[raw_mcmaster_dataset$SEX == 'M'] <- 1
+raw_mcmaster_dataset$SEX[raw_mcmaster_dataset$SEX == 'F'] <- 2
+
+class(raw_mcmaster_dataset$SEX)
+raw_mcmaster_dataset$SEX <- as.factor(raw_mcmaster_dataset$SEX)
+class(raw_mcmaster_dataset$SEX)
+
+# Re-coding functional assay 
+raw_mcmaster_dataset$SRA[raw_mcmaster_dataset$SRA == 'SRA POS'] <- 1
+raw_mcmaster_dataset$SRA[raw_mcmaster_dataset$SRA == 'SRA NEG'] <- 0
+raw_mcmaster_dataset$SRA[raw_mcmaster_dataset$SRA == "SRA ND"] <- NA_integer_
+
+raw_mcmaster_dataset %>% group_by(SRA) %>% count
+
+raw_mcmaster_dataset$SRA <- as.factor(raw_mcmaster_dataset$SRA)
+
+# Re-coding surgery variable
+raw_mcmaster_dataset$Surgery_Patient[raw_mcmaster_dataset$Surgery_Patient == 'Yes'] <- 1
+raw_mcmaster_dataset$Surgery_Patient[raw_mcmaster_dataset$Surgery_Patient == 'No'] <- 0
+
+raw_mcmaster_dataset$Surgery_Patient[raw_mcmaster_dataset$Surgery_Patient == 'unknown'] <- NA
+
+raw_mcmaster_dataset$Surgery_Patient <- as.factor(raw_mcmaster_dataset$Surgery_Patient)
+
+#Creating blood type O/non-O group
+raw_mcmaster_dataset$O_type <- if_else(raw_mcmaster_dataset$GROUP == 'O', 1, 0)
+raw_mcmaster_dataset$O_type <- as.factor(raw_mcmaster_dataset$O_type)
+
+# Creating OD variable
+raw_mcmaster_dataset$OD <- if_else(!is.na(raw_mcmaster_dataset$IgG), raw_mcmaster_dataset$IgG, raw_mcmaster_dataset$IgP)
+dplyr::count(raw_mcmaster_dataset, is.na(IgG))
+dplyr::count(raw_mcmaster_dataset, is.na(IgP))
+dplyr::count(raw_mcmaster_dataset, is.na(OD))
+
+dplyr::count(raw_mcmaster_dataset, !is.na(IgG) & !is.na(IgP))
+
+
+# add categorical variable for OD positvitiy
+raw_mcmaster_dataset$OD_pos <- if_else(raw_mcmaster_dataset$OD > 0.5, 1, if_else(raw_mcmaster_dataset$OD < 0.5, 0, NA_real_))
+
+
+#Remove all individuals with missing OD values
+
+raw_mcmaster_dataset <- filter(raw_mcmaster_dataset, !is.na(OD))
+
+
+dplyr::count(raw_mcmaster_dataset, is.na(Surgery_Patient))
+```
+### Rainbow plotting
+
+```{r}
+raincloud_theme = theme(
+text = element_text(size = 10),
+axis.title.x = element_text(size = 16),
+axis.title.y = element_text(size = 16),
+axis.text = element_text(size = 14),
+axis.text.x = element_text(angle = 45, vjust = 0.5),
+legend.title=element_text(size=16),
+legend.text=element_text(size=16),
+legend.position = "right",
+plot.title = element_text(lineheight=.8, face="bold", size = 16),
+panel.border = element_blank(),
+panel.grid.minor = element_blank(),
+panel.grid.major = element_blank(),
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+# Summary statsitics for the plots
+
+lb <- function(x) mean(x) - sd(x)
+ub <- function(x) mean(x) + sd(x)
+
+
+```
+
+## COUNTING NAs \ Basic plotting
+
+```{r}
+count(raw_mcmaster_dataset,is.na(raw_mcmaster_dataset$age))
+
+ggplot(data = raw_mcmaster_dataset, aes(age)) + geom_histogram(aes(y = ..density..), binwidth = 2, color = "blue") + stat_function(fun = dnorm, args = list(mean = mean(raw_mcmaster_dataset$age), sd = sd(raw_mcmaster_dataset$age)))
+
+ggsave(plot = last_plot(), filename = 'age_distribution_mcmaster.png', height = 5, width = 5)
+
+
+# count of total non-missing IgG
+
+
+sum(is.na(raw_mcmaster_dataset$IgG))
+summary(raw_mcmaster_dataset$IgG)
+
+sum(is.na(raw_mcmaster_dataset$IgP))
+summary(raw_mcmaster_dataset$IgP)
+
+sum(is.na(raw_mcmaster_dataset$OD))
+summary(raw_mcmaster_dataset$OD)
+
+summary(raw_mcmaster_dataset$SRA)
+filter(raw_mcmaster_dataset, OD < 0.4) %>% count((SRA))
+
+
+```
+
+
+## Creating Table 1, Table 2
+
+```{r}
+dplyr::count(raw_mcmaster_dataset, raw_mcmaster_dataset$Surgery_Patient == 1)
+dplyr::count(raw_mcmaster_dataset, Surgery_Patient)
+sum(is.na(raw_mcmaster_dataset$Surgery_Patient))
+
+varss_mcmaster <- c("age", "SEX", "OD","SRA", "GROUP", "RH","Surgery_Patient", "O_type", "OD_pos")
+cat_varss_mcmaster <- c("SEX", "SRA", "GROUP","RH", "Surgery_Patient", 'O_type', 'OD_pos')
+
+#Table 1 generation
+tab1_mcmaster <- CreateTableOne(vars = varss_mcmaster, data = raw_mcmaster_dataset, factorVars = cat_varss_mcmaster, includeNA = T)
+tab1_mcmaster
+
+# Table 2, stratification
+tab2_mcmaster <-  CreateTableOne(vars = varss_mcmaster, data = raw_mcmaster_dataset, factorVars = cat_varss_mcmaster, strata = 'SRA', testApprox = chisq.test, testNonNormal = T, includeNA = F)
+tab2_mcmaster
+
+
+# Summary statistics on only O blood group
+tab1_11 <- CreateTableOne(vars = varss, data = subset(raw_mcmaster_dataset, raw_mcmaster_dataset$GROUP == 'O'), factorVars = cat_varss, testApprox = chisq.test, testNonNormal = T)
+tab1_11
+
+# Summary stats grouped by gender
+tab1_2 <- CreateTableOne(vars = varss, data = raw_mcmaster_dataset, factorVars = cat_varss, strata = 'SEX', testNonNormal = T)
+tab1_2
+
+# GROUP by surgery
+tab1_3 <- CreateTableOne(vars = varss, data = raw_mcmaster_dataset, factorVars = cat_varss, strata = c('Surgery_Patient'), testApprox = chisq.test, testNonNormal = T)
+tab1_3
+
+# Group by Rhesus antigen
+tab1_4 <- CreateTableOne(vars = varss, data = raw_mcmaster_dataset, factorVars = cat_varss, strata = c('RH'), testApprox = chisq.test, testNonNormal = T)
+tab1_4
+
+# Group by blood type
+tab1_5 <- CreateTableOne(vars = varss_mcmaster, data = raw_mcmaster_dataset, factorVars = cat_varss_mcmaster, strata = c('GROUP'), testApprox = chisq.test, testNonNormal = T, includeNA = T)
+tab1_5
+
+# Stratify by O/non-O 
+tab1_6 <- CreateTableOne(vars = varss_mcmaster, data = raw_mcmaster_dataset, factorVars = cat_varss_mcmaster, strata = c('O_type'), testApprox = chisq.test, testNonNormal = T)
+tab1_6
+
+```
+
+
+### Logistic regression on Functional Assay (SRA) and IgG
+```{r}
+
+reg_sra_igg_mcmaster <- glm(SRA ~ OD, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_igg_mcmaster)
+exp(coef(reg_sra_igg_mcmaster))
+or_glm(raw_mcmaster_dataset,reg_sra_igg_mcmaster, incr = list(OD = 1))
+
+# Association of OD, adjustment for age
+reg_sra_igg_age_mcmaster <- glm(SRA ~ OD + age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_igg_age_mcmaster)
+exp(coef(reg_sra_igg_age_mcmaster))
+or_glm(raw_mcmaster_dataset,reg_sra_igg_age_mcmaster, incr = list(OD = 1, age = 1))
+
+# Association of OD, adjustment for age and sex
+
+reg_sra_igg_age_sex_mcmaster <- glm(SRA ~ OD + age + SEX, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_igg_age_sex_mcmaster)
+exp(coef(reg_sra_igg_age_sex_mcmaster))
+
+or_glm(raw_mcmaster_dataset,reg_sra_igg_age_sex, incr = list(OD = 1, age = 1))
+
+
+
+```
+
+
+### Logistic regression on Functional Assay (SRA) and AGE
+```{r}
+
+reg_sra_age_mcmaster <- glm(SRA ~ age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_age_mcmaster)
+exp(coef(reg_sra_age_mcmaster))
+or_glm(raw_mcmaster_dataset,reg_sra_age_mcmaster, incr = list(age = 1))
+
+# Plot of association of age
+g <- ggplot(data = subset(raw_mcmaster_dataset, !is.na(raw_mcmaster_dataset$SRA)), aes(y = age, x = SRA, fill = SRA)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) + 
+geom_point(aes(y = age, color = SRA), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+g
+
+ggsave(plot = last_plot(), filename = 'sra_age_mcmaster.png', height = 5, width = 5)
+
+# Association of age on SRA stratified by gender
+reg_sra_age_subsex_mcmaster <- glm(SRA ~ age, data = subset(raw_mcmaster_dataset, SEX ==2), family = binomial(link = 'logit'))
+
+summary(reg_sra_age_subsex_mcmaster)
+exp(coef(reg_sra_age_subsex_mcmaster))
+
+```
+### Logistic regression on Functional Assay (SRA) and Sex   
+```{r}
+reg_sra_gender_mcmaster <- glm(SRA ~ SEX, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+class(raw_mcmaster_dataset$SEX)
+
+summary(reg_sra_gender_mcmaster)
+exp(coef(reg_sra_gender_mcmaster))
+
+or_glm(raw_mcmaster_dataset,reg_sra_gender_mcmaster)
+
+#adjusted for age
+reg_sra_gender_age_mcmaster <- glm(SRA ~ SEX + age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_gender_age_mcmaster)
+exp(coef(reg_sra_gender_age_mcmaster))
+
+
+# Is there confounding of blood type
+
+reg_sra_gender_otype <- glm(SRA ~ SEX+O_type, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_gender_otype)
+exp(coef(reg_sra_gender_otype))
+
+
+## Is there confounding of blood type
+
+reg_sra_gender_otype <- glm(SRA ~ SEX+GROUP, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_gender_otype)
+exp(coef(reg_sra_gender_otype))
+
+
+# confounding between SEX and RH 
+
+reg_sra_gender_rh <- glm(SRA ~ SEX+RH+O_type, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+summary(reg_sra_gender_rh)
+exp(coef(reg_sra_gender_rh))
+
+```
+### Logistic regression on Functional Assay (SRA) and Rhesus antigen    
+```{r}
+reg_sra_RH_mcmaster <- glm(SRA ~ RH, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_RH_mcmaster)
+exp(coef(reg_sra_RH_mcmaster))
+
+or_glm(raw_mcmaster_dataset, reg_sra_RH_mcmaster)
+
+# Adjustment for gender
+reg_sra_RH_gender_mcmaster <- glm(SRA ~ RH + SEX, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_RH_gender_mcmaster)
+exp(coef(reg_sra_RH_gender_mcmaster))
+
+# adjustment for type O blood
+reg_sra_RH_otype <- glm(SRA ~ RH + O_type, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_RH_otype)
+exp(coef(reg_sra_RH_otype))
+
+# Adjustment for surgery
+reg_sra_RH_surgery <- glm(SRA ~ RH + Surgery_Patient, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_RH_surgery)
+exp(coef(reg_sra_RH_surgery))
+```
+### Logistic regression on Functional Assay (SRA) and Blood group   
+```{r}
+reg_sra_abo_mcmaster <- glm(SRA ~ GROUP, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_abo_mcmaster)
+exp(coef(reg_sra_abo_mcmaster))
+
+or_glm(raw_mcmaster_dataset,reg_sra_abo_mcmaster)
+
+raw_mcmaster_dataset %>% 
+  filter(!is.na(SRA),!is.na(GROUP)) %>% 
+  ggplot() + 
+  geom_bar(aes( x = SRA, fill = as.factor(GROUP)), position = 'fill') + theme_minimal()
+
+# effect of Rhesus on ABO 
+reg_sra_abo_RH_mcmaster <- glm(SRA ~ GROUP + RH, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_abo_RH_mcmaster)
+exp(coef(reg_sra_abo_RH_mcmaster))
+
+# Is there an effect between blood type and surgery
+reg_sra_group_surgery <- glm(SRA ~ GROUP + Surgery_Patient, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_group_surgery)
+exp(coef(reg_sra_group_surgery))
+
+
+## ABO blood group adjusted for Sex and age
+
+reg_sra_abo_full <- glm(SRA ~ GROUP + SEX + age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_abo_full)
+exp(coef(reg_sra_abo_full))
+
+or_glm(raw_mcmaster_dataset,reg_sra_abo_full, incr = list(age = 1))
+
+
+h <- ggplot(data = subset(raw_mcmaster_dataset, !is.na(raw_mcmaster_dataset$GROUP)), aes(y = OD, x = GROUP, fill = GROUP)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) + 
+geom_point(aes(y = OD, color = GROUP), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+h
+
+
+p <- ggplot(data = subset(raw_mcmaster_dataset, !is.na(raw_mcmaster_dataset$GROUP) & raw_mcmaster_dataset$OD > 0), aes(x = GROUP, y = OD, fill = GROUP)) + geom_violin(trim=T) +
+   geom_boxplot(width=0.1, outlier.shape = NA ) + theme_minimal()
+p
+
+p + scale_fill_brewer(palette="GnBu")
+
+ggsave(plot = last_plot(), filename = 'abo_OD_violin_mcmaster.png', height = 5, width = 5)
+p + scale_fill_grey() + theme_classic()
+p + geom_jitter(shape=16, position=position_jitter(0.2))
+
+```
+## Regression on SRA and non-O
+
+
+```{r}
+reg_sra_nono <- glm(SRA ~ O_type, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_nono)
+exp(coef(reg_sra_nono))
+
+or_glm(raw_mcmaster_dataset,reg_sra_nono)
+
+raw_mcmaster_dataset %>% 
+  filter(!is.na(SRA),!is.na(O_type)) %>% 
+  ggplot() + 
+  geom_bar(aes( x = SRA, fill = as.factor(O_type)), position = 'fill') + theme_minimal()
+
+## Effect of age and gender
+
+reg_sra_abo_full_mcmaster <- glm(SRA ~ O_type + SEX + age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_abo_full_mcmaster)
+exp(coef(reg_sra_abo_full_mcmaster))
+or_glm(raw_mcmaster_dataset,reg_sra_abo_full_mcmaster, incr = list(age = 1))
+
+
+# Is there an effect between O type and surgery
+reg_sra_group_surgery <- glm(SRA ~ O_type + Surgery_Patient, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_group_surgery)
+exp(coef(reg_sra_group_surgery))
+
+
+
+```
+### Logistic regression on Functional Assay (SRA) and Surgery
+```{r}
+reg_sra_surgery_mcmaster <- glm(SRA ~ Surgery_Patient, data = subset(raw_mcmaster_dataset, !is.na(Surgery_Patient)), family = binomial(link = 'logit'))
+
+summary(reg_sra_surgery_mcmaster)
+exp(coef(reg_sra_surgery_mcmaster))
+or_glm(raw_mcmaster_dataset,reg_sra_surgery_mcmaster)
+
+# Effect of age on surgery
+reg_rs_surgery_age <- glm(SRA ~ Surgery_Patient + age, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_rs_surgery_age)
+exp(coef(reg_rs_surgery_age))
+
+# Effect of gender on surgery
+
+# Is there an interaction between Surgery and SEX
+
+reg_rs_surgery_sex <- glm(SRA ~ Surgery_Patient + SEX, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
+
+summary(reg_rs_surgery_sex)
+exp(coef(reg_rs_surgery_sex))
+```
+
+## Stepwise backwards regression modeling, Youden's J - Table 4
+
+```{r}
+
+class(raw_mcmaster_dataset$Surgery_Patient)
+class(raw_mcmaster_dataset$GROUP)
+
+fit1_mcmaster <- glm(data = raw_mcmaster_dataset , SRA ~ age + SEX + OD + Surgery_Patient + as.factor(GROUP) + RH, family = binomial(link = 'logit'))
+summary(fit1_mcmaster)
+
+count(raw_mcmaster_dataset, Surgery_Patient)
+
+# FIT remvoing NAs
+raw_mcmaster_nosurg <- filter(raw_mcmaster_dataset, !is.na(OD) & !is.na(SRA) & !is.na(SEX) & !is.na(GROUP) & !is.na(RH) & !is.na(Surgery_Patient))
+
+raw_mcmaster_nosurg_dropsurg <- subset(raw_mcmaster_nosurg, select = -Surgery_Patient)
+
+fit1_mcmaster <- glm(data = raw_mcmaster_nosurg, SRA ~  age + SEX + OD + as.factor(GROUP) + RH , family = binomial(link = 'logit'))
+
+#sum(is.na(raw_mcmaster$Surgery_Patient))
+
+#---------------------------------------------------------------------------------------------
+step_model <- fit1_mcmaster %>% stepAIC(trace = T)
+
+summary(step_model)
+
+exp(coef(step_model))
+
+exp(confint(step_model))
+
+or_glm(raw_mcmaster_dataset, step_model, incr = list(OD = 1, age = 1))
+
+# Youdens calculation
+raw_mcmaster_dataset_backwards_df <- filter(raw_mcmaster_dataset, !is.na(OD) & !is.na(SEX) & !is.na(SRA))
+
+fit2_mcmaster <- glm(data = raw_mcmaster_dataset_backwards_df, SRA ~ SEX + OD , family = binomial(link = 'logit'))
+
+
+forward_step_preds_tours <- predict(fit2_mcmaster)
+
+raw_mcmaster_dataset_backwards_df$predictor_stepwise <- forward_step_preds_tours
+raw_mcmaster_dataset_backwards_df$outcome_stepwise <- raw_mcmaster_dataset_backwards_df$SRA
+
+cut_youdens_stepwise_mcmaster <- cutpointr(raw_mcmaster_dataset_backwards_df, predictor_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_stepwise_mcmaster)
+
+# cOMPARING IF THE FULL MODEL DOES BETTER AT PREDICTION VS. JUST ANTIBODY ALONE
+
+
+
+reg_sra_igg_mcmaster <- glm(SRA ~ OD, data = raw_mcmaster_dataset_backwards_df, family = binomial(link = 'logit'))
+stepwise_reg_model <- glm(data = raw_mcmaster_dataset_backwards_df , SRA ~ SEX + OD, family = binomial(link = 'logit'))
+
+
+lr.test(reg_sra_igg_mcmaster, stepwise_reg_model)
+
+lmtest::lrtest(stepwise_reg_model, reg_sra_igg_mcmaster)
+
+AIC(stepwise_reg_model,reg_sra_igg_mcmaster)
+
+
+```
+
+
+
+### Sensitivity Analysis of Ig Polyclonal vs IgG 
+```{r}
+# Using IgP vs IgG for regression model
+raw_mcmaster_na_ipg_igg_only <- dplyr::filter(raw_mcmaster_dataset, !is.na(SRA) & !is.na(SEX) & !is.na(IgP) & !is.na(IgG)) 
+
+fitigp_mcmaster <- glm(data = raw_mcmaster_na_ipg_igg_only, SRA ~ IgP + SEX, family = binomial(link = 'logit'))
+forward_step_preds_mcmaster <- predict(fitigp_mcmaster)
+
+raw_mcmaster_na_ipg_igg_only$predictor_stepwise <- forward_step_preds_mcmaster
+raw_mcmaster_na_ipg_igg_only$outcome_stepwise <- raw_mcmaster_na_ipg_igg_only$SRA
+
+cut_youdens_stepwise_igp <- cutpointr(raw_mcmaster_na_ipg_igg_only, predictor_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_stepwise_igp)
+
+pROC::auc(raw_mcmaster_na_ipg_igg_only$SRA, raw_mcmaster_na_ipg_igg_only$predictor_stepwise)
+
+# NOW IgG
+
+fitigg_mcmaster <- glm(data = raw_mcmaster_na_ipg_igg_only, SRA ~ IgG + SEX, family = binomial(link = 'logit'))
+forward_step_preds_mcmaster <- predict(fitigg_mcmaster)
+
+raw_mcmaster_na_ipg_igg_only$predictor_stepwise <- forward_step_preds_mcmaster
+raw_mcmaster_na_ipg_igg_only$outcome_stepwise <- raw_mcmaster_na_ipg_igg_only$SRA
+
+cut_youdens_stepwise_igg <- cutpointr(raw_mcmaster_na_ipg_igg_only, predictor_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_stepwise_igg)
+
+pROC::auc(raw_mcmaster_na_ipg_igg_only$SRA, raw_mcmaster_na_ipg_igg_only$predictor_stepwise)
+
+lrtest(fitigp_mcmaster, fitigg_mcmaster)
+```
+
+
+
+
+## Youdens J and ROC for best dichotimizing for IgG and HIPA - Table 5
+
+```{r}
+# creating subset dataframe for only necessary variables
+optimal_cut_youdens_mcmaster_df <- raw_mcmaster_dataset %>% dplyr::select(OD, SRA, SEX)
+
+mcmaster_optimal_cut_df <- optimal_cut_youdens_mcmaster_df %>% dplyr::select(predictor = OD, outcome = SRA) %>% mutate(cohort = 'mcmaster')
+
+class(mcmaster_optimal_cut_df)
+
+mcmaster_optimal_cut_df <- as.data.frame(mcmaster_optimal_cut_df)
+
+class(mcmaster_optimal_cut_df)
+
+# Running cutpointr to find optimal cutpoint 
+cut_youdens_tours <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_tours)
+plg <- plot_metric(cut_youdens_tours)
+
+plg + ggtitle('McMaster - Antibody Cutpoint for HIT Determination') + theme_minimal()
+
+# Manual Cutpoints
+
+cut_youdens_manual_0.4 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 0.4, na.rm = T)
+
+summary(cut_youdens_manual_0.4)
+
+
+cut_youdens_manual_1.0 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.0, na.rm = T)
+
+summary(cut_youdens_manual_1.0)
+
+cut_youdens_manual_1.5 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.5, na.rm = T)
+
+summary(cut_youdens_manual_1.5)
+
+cut_youdens_manual_2.0 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.0, na.rm = T)
+
+summary(cut_youdens_manual_2.0)
+
+cut_youdens_manual_2.5 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.5, na.rm = T)
+
+summary(cut_youdens_manual_2.5)
+
+cut_youdens_manual_3.0 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 3.0, na.rm = T)
+
+summary(cut_youdens_manual_3.0)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Including OD, age and gender (common variables in all 3 cohorts)
+
+```{r}
+reg_sra_od_age_gender_mcmaster <- glm(SRA ~ OD + age + SEX, data = raw_mcmaster, family = binomial(link = 'logit'))
+
+summary(reg_sra_od_age_gender_mcmaster)
+exp(coef(reg_sra_od_age_gender_mcmaster))
+or_glm(raw_mcmaster, reg_sra_od_age_gender_mcmaster, incr = list(OD = 1, age = 1))
+
+reg_sra_od_age_gender_mcmaster <- glm(SRA ~ OD + age + SEX, data = subset(raw_mcmaster, OD > 0.5), family = binomial(link = 'logit'))
+```

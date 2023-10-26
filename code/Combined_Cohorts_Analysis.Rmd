@@ -1,0 +1,75 @@
+---
+title: "Demographics Analysis Combined"
+author: "Jason Giles"
+date: "2023-06-23"
+output: html_document
+---
+## R Markdown
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Creating environment for analysis of all 3 cohorts
+#### This files must be ran after the generation of the dataframes for the 3 cohorts, respectively
+
+```{r}
+library(tidyverse)
+library(pscl)
+library(MESS)
+library(haven)
+library(here)
+library(psych)
+library(skimr)
+library(DataExplorer)
+library(visdat)
+library(mdscore)
+library(oddsratio)
+library(ppcor)
+library(corrplot)
+library(corrr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(Hmisc)
+library(RColorBrewer)
+library(reshape2)
+library(PupillometryR)
+library(corrplot)
+library(corrr)
+library(MASS)
+library(bestNormalize)
+library(readxl)
+library(car)
+library(tableone)
+library(olsrr)
+library(MASS)
+library(cutpointr)
+library(car)
+library(OptimalCutpoints)
+library(lmtest)
+library(pROC)
+library(pastecs)
+```
+
+### Merging the cohorts to make one unified dataframe
+```{r}
+greif_subset <- raw_greif_dataset_A6_transformed_vars %>% dplyr::select('ID', 'gender','age','IgG','HIPA_DK', 'OD_pos')
+greif_subset$cohort <- 'greifswald'
+
+greif_subset <- greif_subset %>% rename(funcational_assay = 'HIPA_DK', OD = 'IgG')
+
+mcmaster_subset <- raw_mcmaster %>% dplyr::select('new_abo','SEX','age','SRA','OD','OD_pos')
+mcmaster_subset$cohort <- 'mcmaster'
+
+mcmaster_subset <- mcmaster_subset %>% rename(ID = "new_abo",gender = "SEX", funcational_assay = "SRA")
+
+tours_subset <- tours_demographic %>% dplyr::select("FID","age", "gender","OD","SRAnew2" ,"OD_pos")
+tours_subset$cohort <- 'tours'
+
+tours_subset <- tours_subset %>% rename(funcational_assay = "SRAnew2", ID = "FID")
+
+
+combined_subset <- bind_rows(greif_subset, tours_subset, mcmaster_subset)
+
+```

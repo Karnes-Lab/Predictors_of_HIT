@@ -1,0 +1,604 @@
+---
+title: "Tours Demographic Analysis"
+author: "Jason Giles"
+date: "2023-06-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pscl)
+library(tidyverse)
+library(MESS)
+library(haven)
+library(here)
+library(psych)
+library(skimr)
+library(DataExplorer)
+library(visdat)
+library(mdscore)
+library(oddsratio)
+library(ppcor)
+library(corrplot)
+library(corrr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(Hmisc)
+library(RColorBrewer)
+library(reshape2)
+library(PupillometryR)
+library(corrplot)
+library(corrr)
+library(MASS)
+library(bestNormalize)
+library(readxl)
+library(car)
+library(tableone)
+library(olsrr)
+library(MASS)
+library(cutpointr)
+library(car)
+library(OptimalCutpoints)
+library(lmtest)
+library(pROC)
+library(pastecs)
+library(dplyr)
+library(readr)
+library(here)
+
+getwd()
+here()
+# read in Tours file
+raw_tours_dataset <- read_delim((here("../TOURS_covariate.txt")), delim = "\t")
+```
+
+### Exploration of the data & summary - Cleaning of data
+```{r}
+skim(raw_tours_dataset)
+summary(raw_tours_dataset)
+
+#Replace -9 value with NA
+raw_tours_dataset[raw_tours_dataset == -9] <- NA
+summary(raw_tours_dataset)
+
+# Filter for anyone 18 or older
+
+raw_tours_dataset <- raw_tours_dataset %>% dplyr::filter(is.na(age) | age >= 18)
+
+# Filter anyone missing OD values 
+
+raw_tours_dataset <- filter(raw_tours_dataset, !is.na(OD))
+
+# visualizing the overall data structure
+vis_miss(raw_tours_dataset)
+vis_dat(raw_tours_dataset)
+# Count if any repeats of IID
+
+n_occur <- data.frame(table(raw_tours_dataset$IID))
+
+n_occur[n_occur$Freq >1, ]
+
+### Cleaning of the data
+raw_tours_dataset$gender <- as.factor(raw_tours_dataset$gender)
+raw_tours_dataset$CPBnew <- as.factor(raw_tours_dataset$CPBnew)
+raw_tours_dataset$SRAnew <- as.factor(raw_tours_dataset$SRAnew)
+raw_tours_dataset$SRAnew2 <- as.factor(raw_tours_dataset$SRAnew2)
+raw_tours_dataset$HIT_trend <- as.factor(raw_tours_dataset$HIT_trend)
+raw_tours_dataset$thrombosisnew <- as.factor(raw_tours_dataset$thrombosisnew)
+raw_tours_dataset$UFH <- as.factor(raw_tours_dataset$UFH)
+
+# Creating OD_pos variable
+raw_tours_dataset$OD_pos <- if_else(raw_tours_dataset$OD > 0.5, 1, if_else(raw_tours_dataset$OD < 0.5, 0, NA_real_))
+
+
+class(raw_tours_dataset$age)
+
+# Visualization of age
+
+ggplot(data = raw_tours_dataset, aes(age)) + geom_histogram(aes(y = ..density..), binwidth = 2, color = "blue") + stat_function(fun = dnorm, args = list(mean = mean(raw_tours_dataset$age), sd = sd(raw_tours_dataset$age)))
+
+
+```
+
+### Rainbow plotting
+
+```{r}
+raincloud_theme = theme(
+text = element_text(size = 10),
+axis.title.x = element_text(size = 16),
+axis.title.y = element_text(size = 16),
+axis.text = element_text(size = 14),
+axis.text.x = element_text(angle = 45, vjust = 0.5),
+legend.title=element_text(size=16),
+legend.text=element_text(size=16),
+legend.position = "right",
+plot.title = element_text(lineheight=.8, face="bold", size = 16),
+panel.border = element_blank(),
+panel.grid.minor = element_blank(),
+panel.grid.major = element_blank(),
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+# Summary statsitics for the plots
+
+lb <- function(x) mean(x) - sd(x)
+ub <- function(x) mean(x) + sd(x)
+
+
+```
+
+### Create Tables - Table 1 & Table 2
+```{r}
+?CreateTableOne
+varss <- c("age", "gender", "OD","SRAnew2", "UFH", "PLT_before","CPBnew", 'OD_pos')
+cat_varss <- c("gender", "SRAnew2", "UFH","CPBnew", 'OD_pos')
+
+# Creating Table 1
+tab1 <- CreateTableOne(vars = varss, data = raw_tours_dataset, factorVars = cat_varss, includeNA = F)
+tab1
+
+# Creating Table 2 - stratifying by functional assay status
+tab1_1_tours <- CreateTableOne(vars = varss, data = raw_tours_dataset, factorVars = cat_varss, strata = c('SRAnew2'), testApprox = chisq.test, testNonNormal = T)
+tab1_1_tours
+
+
+# Table stratified by gender, heparin type
+
+tab1_2 <- CreateTableOne(vars = varss, data = raw_tours_dataset, factorVars = cat_varss, strata = c('gender'), testApprox = chisq.test, testNonNormal = T)
+tab1_2
+
+tab1_2 <- CreateTableOne(vars = varss, data = raw_tours_dataset, factorVars = cat_varss, strata = c('UFH'), testApprox = chisq.test, testNonNormal = T)
+tab1_2
+
+# Table subset by positive/negative OD patients only
+tab2 <- CreateTableOne(vars = varss, data = subset(raw_tours_dataset, OD >= 0.5), factorVars = cat_varss)
+tab2
+
+tab3 <- CreateTableOne(vars = varss, data = subset(raw_tours_dataset, OD < 0.5), factorVars = cat_varss)
+tab3
+
+# Analysis on only funcational assay positive/negative patients
+tab4 <- CreateTableOne(vars = varss, data = subset(raw_tours_dataset, SRAnew2 == 1), factorVars = cat_varss)
+tab4
+
+tab5 <- CreateTableOne(vars = varss, data = subset(raw_tours_dataset, SRAnew2 == 0), factorVars = cat_varss)
+tab5
+
+```
+
+### Linear regression on OD and age
+```{r}
+lin_age_od_tours <- lm(OD ~ age, data = raw_tours_dataset)
+summary(lin_age_od_tours)
+exp(coef(lin_age_od_tours))
+
+# Checking for distribution of the residuals
+res <- lin_age_od_tours$residuals
+res <- data.frame(res)
+ggplot(data = res, aes(res)) + geom_histogram(aes(y = ..density..), binwidth = .1, color = "blue") +
+  stat_function(fun = dnorm, args = list(mean = mean(res$res), sd = sd(res$res)))
+
+
+# Association of age and OD - subset functional assay positive
+
+lin_od_possra <- lm(OD ~ age, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 1)
+summary(lin_od_possra)
+
+ggplot(subset(raw_tours_dataset, SRAnew2 ==1) , aes(x = age, y = OD, color= gender, group = gender )) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x)
+
+# Subset on SRAnew2 negative
+
+
+lin_od_negsra <- lm(OD ~ age, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 0)
+summary(lin_od_negsra)
+
+
+ggplot(subset(raw_tours_dataset, SRAnew2 ==0) , aes(x = age, y = OD, color= gender, group = gender )) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x)
+
+# Regression on IgG positive patients
+
+lin_age_odpos_tours <- lm(OD ~ age, data = subset(raw_tours_dataset, OD > 0.5))
+summary(lin_age_odpos_tours)
+
+# Linear Regression on age, subset by sex
+
+lin_age_od_submale_tours <- lm(OD ~ age, data = raw_tours_dataset, subset = gender == 1)
+summary(lin_age_od_submale_tours)
+
+lin_age_od_subfemale_tours <- lm(OD ~ age, data = raw_tours_dataset, subset = gender == 2)
+summary(lin_age_od_subfemale_tours)
+
+# Linear regression on age, subset by functional assay status
+
+lin_age_od_subsrapos <- lm(OD ~ age, data = raw_tours_dataset, subset = SRAnew2 == 1)
+summary(lin_age_od_subsrapos)
+
+ggplot(subset(raw_tours_dataset, SRAnew2 == 1 ), aes(x = age, y = OD)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+# Functional assay negative 
+lin_age_od_subsraneg <- lm(OD ~ age, data = raw_tours_dataset, subset = SRAnew2 == 0)
+summary(lin_age_od_subsraneg)
+
+ggplot(subset(raw_tours_dataset, SRAnew2 == 0 ), aes(x = age, y = OD)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+```
+
+### Association of gender and OD units
+```{r}
+unique(raw_tours_dataset$gender)
+
+lin_gender_od_tours <- lm(OD ~ gender, data = raw_tours_dataset)
+summary(lin_gender_od_tours)
+
+# Checking for distribution of the residuals
+res <- lin_gender_od_tours$residuals
+res <- data.frame(res)
+
+# GGplot of  residuals
+
+ggplot(data = res, aes(res)) + geom_histogram(aes(y = ..density..), binwidth = .1, color = "blue") +
+  stat_function(fun = dnorm, args = list(mean = mean(res$res), sd = sd(res$res)))
+
+g <- ggplot(data = raw_tours_dataset, aes(y = OD, x = gender, fill = gender)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = gender), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.5) +
+guides(fill = "none") +
+guides(color = "none") +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+g + ggtitle('Tours: Antibody levels vs. Gender') + labs(y = "Antibody Levels", x = "Gender") +scale_x_discrete(labels = c( '2' = 'Female', '1' = 'Male'))
+
+
+
+
+# Optical density and gender subset SRAnew2
+
+
+lin_gender_od_tours_subsra <- lm(OD ~ gender, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 1 )
+summary(lin_gender_od_tours_subsra)
+
+
+lin_gender_od_tours_subsraneg <- lm(OD ~ gender, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 0 )
+summary(lin_gender_od_tours_subsraneg)
+
+# IgG positive
+
+lin_gender_igg_pos_tours <- lm(OD ~ gender, data = raw_tours_dataset, subset = raw_tours_dataset$OD > 0.5)
+summary(lin_gender_igg_pos_tours)
+```
+### Regression on OD and Platelet count (PLT_before)
+```{r}
+
+lin_plt_od_tours <- lm(OD ~ PLT_before, data = raw_tours_dataset)
+summary(lin_plt_od_tours)
+
+
+ggplot(data = raw_tours_dataset, aes(x = PLT_before, y = OD)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+
+ggplot(data = raw_tours_dataset, aes(PLT_before)) + geom_histogram(aes(y = ..density..), binwidth = .04,color = "blue") +
+  stat_function(fun = dnorm, args = list(mean = mean(raw_tours_dataset$PLT_before), sd = sd(raw_tours_dataset$PLT_before)))
+
+# Subsetting the platelet before on funcational assay status
+
+lin_plt_od_tours_subsra <- lm(OD ~ PLT_before, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 1)
+summary(lin_plt_od_tours_subsra)
+
+lin_plt_od_tours_subsraneg <- lm(OD ~ PLT_before, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 1)
+summary(lin_plt_od_tours_subsraneg)
+
+ggplot(subset(raw_tours_dataset, raw_tours_dataset$SRAnew2 == 0), aes(x = PLT_before, y = OD)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+```
+
+### Regression on OD and CBP variable
+```{r}
+lin_cpb_od_tours <- lm(OD ~ CPBnew, data = raw_tours_dataset)
+summary(lin_cpb_od_tours)
+
+unique(raw_tours_dataset$CPBnew)
+
+sum(is.na(raw_tours_dataset$CPBnew))
+
+h <- ggplot(data = raw_tours_dataset, aes(y = OD, x = CPBnew, fill = CPBnew)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = CPBnew), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.25) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+h
+```
+### Regression on OD and Thrombosis
+```{r}
+lin_thromb_od_tours <- lm(OD ~ thrombosisnew, data = raw_tours_dataset)
+summary(lin_thromb_od_tours)
+
+
+# SUBset SRA positivity on od and thrombosis
+lin_throm_od_subsra <- lm(OD ~ thrombosisnew, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 1)
+summary(lin_throm_od_subsra)
+
+# This CANNOT BE RAN as there is no thrombosis controls in the SRA contols subset
+#lin_throm_od_subnosra <- lm(OD ~ thrombosisnew, data = raw_tours_dataset, subset = raw_tours_dataset$SRAnew2 == 0)
+#summary(lin_throm_od_subnosra)
+```
+
+### Regression on UFH and OD
+```{r}
+lin_ufh_od_tours <- lm(OD ~ UFH, data = raw_tours_dataset)
+summary(lin_ufh_od_tours)
+
+raw_tours_demographic_subsetUFH <- raw_tours_dataset[!is.na(raw_tours_dataset$UFH),]
+
+
+k <- ggplot(data = raw_tours_demographic_subsetUFH, aes(y = OD, x = UFH, fill = UFH)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = UFH), position = position_jitter(width = .15), size = .5, alpha = 0.8) + geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.25) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+k
+```
+## Logistic Regression on SRA (Functional Assay [HIT]) - Table 3
+###Funcational assay  logistic regression OD
+```{r}
+lo_sra_od_tours <- glm(SRAnew2 ~ OD, data =  raw_tours_dataset, family = binomial(link =  'logit'))
+summary(lo_sra_od_tours)
+exp(coef(lo_sra_od_tours))
+or_glm(raw_tours_dataset,lo_sra_od_tours, incr = list(OD = 1))
+
+l <- ggplot(data = raw_tours_dataset, aes(y = OD, x = SRAnew2, fill = SRAnew2)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = SRAnew2), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+l
+```
+
+### Functional assay regression on age 
+```{r}
+
+class(raw_tours_dataset$SRAnew2)
+
+lo_sra_age_tours <- glm(SRAnew2 ~ age, data = raw_tours_dataset, family = binomial(link = 'logit'))
+summary(lo_sra_age_tours)
+
+or_glm(raw_tours_dataset,lo_sra_age_tours, incr = list(age = 1))
+
+# age on SRA for women vs. men
+
+lo_sra_age_tours_gendersubset <- glm(SRAnew2 ~ age, data = subset(raw_tours_dataset, gender ==2), family = binomial(link = 'logit'))
+summary(lo_sra_age_tours_gendersubset)
+exp(coef(lo_sra_age_tours_gendersubset))
+
+or_glm(raw_tours_dataset,lo_sra_age_tours_gendersubset, incr = list(age = 1))
+
+m <- ggplot(data = subset(raw_tours_dataset, !is.na(raw_tours_dataset$SRAnew2)), aes(y = age, x = SRAnew2, fill = SRAnew2)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = age, color = SRAnew2), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+m
+```
+###Funcational assay on gender
+```{r}
+lo_sra_gender_tours <- glm(SRAnew2 ~ gender, data = raw_tours_dataset, family =binomial(link = 'logit'))
+summary(lo_sra_gender_tours)
+exp(coef(lo_sra_gender_tours))
+or_glm(raw_tours_dataset,lo_sra_gender_tours, incr = list(age = 1))
+```
+### Funcational assay and PLT_before
+```{r}
+
+lo_sra_plt_tours <- glm(SRAnew2 ~ PLT_before, data = raw_tours_dataset, family = binomial(link = 'logit'))
+summary(lo_sra_plt_tours)
+or_glm(raw_tours_dataset, lo_sra_plt_tours, incr = list(PLT_before = 1))
+
+n <- ggplot(data = subset(raw_tours_dataset, !is.na(raw_tours_dataset$SRAnew2)), aes(y = PLT_before, x = SRAnew2, fill = SRAnew2)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = PLT_before, color = SRAnew2), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+n
+```
+### Funcational assay regression on unfractionated Heparin
+```{r}
+lo_sra_ufh_tours <- glm(SRAnew2 ~ UFH, data = raw_tours_dataset, family = binomial(link = 'logit'))
+summary(lo_sra_ufh_tours)
+exp(coef(lo_sra_ufh_tours))
+or_glm(raw_tours_dataset, lo_sra_ufh_tours)
+
+
+summary(raw_tours_dataset$UFH)
+```
+### Logistic regression on SRA and surgery
+```{r}
+lo_sra_surgery_tours <- glm(SRAnew2 ~ CPBnew, data = raw_tours_dataset, family = binomial(link = 'logit'))
+summary(lo_sra_surgery_tours)
+exp(coef(lo_sra_surgery_tours))
+or_glm(raw_tours_dataset, lo_sra_surgery_tours)
+# did not converge....
+```
+## Stepwise backwards regression modeling, Youden's J - Table 4
+
+```{r}
+
+
+tours_demographic_naomit <- filter(raw_tours_dataset, !is.na(OD) & !is.na(age) & !is.na(gender) & !is.na(PLT_before) & !is.na(SRAnew2))
+
+fit1_tours <- glm(data = tours_demographic_naomit, SRAnew2 ~ OD + age + gender + PLT_before, family = binomial(link = 'logit') )
+# stepwise regression model
+
+step_model_tours <- fit1_tours %>% stepAIC(trace = T)
+#summary of the output
+summary(step_model_tours)
+coef(step_model_tours)
+
+exp(coef(step_model_tours))
+
+exp(confint(step_model_tours))
+or_glm(tours_demographic_naomit, step_model_tours, incr = list(OD = 1))
+# Variance inflation factor aka collinearity 
+car::vif(step_model_tours)
+
+# Youden's for SRA prediction using backwards regression variables (retained)
+raw_tours_dataset_backwards_df <- filter(raw_tours_dataset, !is.na(OD) & !is.na(gender) & !is.na(SRAnew2))
+
+fit2_tours <- glm(data = raw_tours_dataset_backwards_df, SRAnew2 ~ OD + gender , family = binomial(link = 'logit'))
+?predict
+forward_step_preds_tours <- predict(fit2_tours)
+
+raw_tours_dataset_backwards_df$predictor_stepwise <- forward_step_preds_tours
+raw_tours_dataset_backwards_df$outcome_stepwise <- raw_tours_dataset_backwards_df$SRAnew2
+
+cut_youdens_stepwise_tours <- cutpointr(raw_tours_dataset_backwards_df, predictor_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_stepwise_tours)
+
+# Plotting 
+
+plot_metric(cut_youdens_stepwise_tours)
+
+# Youden's for SRA prediction with just IgG variable
+
+fit3_tours <- glm(data = raw_tours_dataset_backwards_df, SRAnew2 ~ OD, family = binomial(link = 'logit'))
+
+forward_step_igg_toursf <- predict(fit3_tours)
+
+raw_tours_dataset_backwards_df$predictor_igg_stepwise <- forward_step_igg_toursf
+raw_tours_dataset_backwards_df$outcome_stepwise <- raw_tours_dataset_backwards_df$SRAnew2
+
+cut_youdens_igg_tours <- cutpointr(raw_tours_dataset_backwards_df, predictor_igg_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_igg_tours)
+
+
+# COMPARING IF THE FULL MODEL DOES BETTER AT PREDICTION VS. JUST ANTIBODY ALONE
+
+reg_sra_igg_tours <- glm(data = tours_demographic_naomit, SRAnew2 ~ OD, family = binomial(link = 'logit'))
+stepwise_reg_model_tours <- glm(data = tours_demographic_naomit, SRAnew2 ~ OD + gender, family = binomial(link = 'logit'))
+
+lr.test(stepwise_reg_model_tours, reg_sra_igg_tours)
+
+lmtest::lrtest(stepwise_reg_model_tours, reg_sra_igg_tours)
+
+AIC(stepwise_reg_model_tours, reg_sra_igg_tours)
+
+# Comparing AUC of full model vs OD
+auc(raw_tours_dataset_backwards_df$SRAnew2, raw_tours_dataset_backwards_df$predictor_stepwise)
+auc(raw_tours_dataset_backwards_df$SRAnew2, raw_tours_dataset_backwards_df$OD)
+
+
+```
+## Youdens J and ROC for best dichotimizing for IgG and HIPA - Table 5
+
+```{r}
+# creating subset dataframe for only necessary variables
+
+# select only variable needed for cut points
+
+optimal_cut_youdens_tours_df <- raw_tours_dataset %>% dplyr::select(OD, SRAnew2, gender)
+
+tours_optimal_cut_df <- optimal_cut_youdens_tours_df %>% dplyr::select(predictor = OD, outcome = SRAnew2) %>% mutate(cohort = 'Tours')
+
+class(tours_optimal_cut_df)
+
+tours_optimal_cut_df <- as.data.frame(tours_optimal_cut_df)
+
+class(tours_optimal_cut_df)
+
+# Running cutpointr to find optimal cutpoint 
+cut_youdens_grief <- cutpointr(tours_optimal_cut_df, predictor, outcome, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_grief)
+plg <- plot_metric(cut_youdens_grief)
+
+plg + ggtitle('Grief - Antibody Cutpoint for HIT Determination') + theme_minimal()
+
+# Manual Cutpoints
+
+optimal_cut_youdens_tours_df$predictor <- optimal_cut_youdens_tours_df$OD
+optimal_cut_youdens_tours_df$outcome <- optimal_cut_youdens_tours_df$SRAnew2
+
+cut_youdens_manual_0.4 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 0.4, na.rm = T)
+
+summary(cut_youdens_manual_0.4)
+
+
+cut_youdens_manual_1.0 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.0, na.rm = T)
+
+summary(cut_youdens_manual_1.0)
+
+cut_youdens_manual_1.5 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.5, na.rm = T)
+
+summary(cut_youdens_manual_1.5)
+
+cut_youdens_manual_2.0 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.0, na.rm = T)
+
+summary(cut_youdens_manual_2.0)
+
+cut_youdens_manual_2.5 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.5, na.rm = T)
+
+summary(cut_youdens_manual_2.5)
+
+cut_youdens_manual_3.0 <- cutpointr(tours_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 3.0, na.rm = T)
+
+summary(cut_youdens_manual_3.0)
+
+```
+
+
+## Including OD, age and gender (common variables in all 3 cohorts)
+
+```{r}
+reg_sra_od_age_gender_tours <- glm(SRAnew2 ~ OD + age + gender, data = raw_tours_dataset, family = binomial(link = 'logit'))
+
+summary(reg_sra_od_age_gender_tours)
+exp(coef(reg_sra_od_age_gender_tours))
+or_glm(raw_tours_dataset, reg_sra_od_age_gender_tours, incr = list(OD = 1, age = 1))
+```

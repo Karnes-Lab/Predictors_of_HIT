@@ -1,0 +1,651 @@
+---
+title: "Greifswald Demographic Analysis"
+author: "Jason Giles"
+date: "2023-06-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install packages and read in data
+```{r}
+library(pscl)
+library(tidyverse)
+library(MESS)
+library(haven)
+library(here)
+library(psych)
+library(skimr)
+library(DataExplorer)
+library(visdat)
+library(mdscore)
+library(oddsratio)
+library(ppcor)
+library(corrplot)
+library(corrr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(Hmisc)
+library(RColorBrewer)
+library(reshape2)
+library(PupillometryR)
+library(corrplot)
+library(corrr)
+library(MASS)
+library(bestNormalize)
+library(readxl)
+library(car)
+library(tableone)
+library(olsrr)
+library(MASS)
+library(cutpointr)
+library(car)
+library(OptimalCutpoints)
+library(lmtest)
+library(pROC)
+library(pastecs)
+library(dplyr)
+library(here)
+
+here()
+
+# Reading in the Demographic data
+raw_greif_dataset <- readxl::read_excel(here('../Final data base Greifswald patients GWA HIT STUDY_20161215.xlsx'), sheet = 2)
+
+# Removing all individuals less that 18 years old
+raw_greif_dataset <- raw_greif_dataset %>% filter(raw_greif_dataset$age > 18)
+```
+
+### Exploration of the data & summary 
+
+```{r}
+skim(raw_greif_dataset)
+summary(raw_greif_dataset)
+
+# recoding HIT assessment to be a factor level variable
+raw_greif_dataset$final_HIT_Assessment <- as.factor(raw_greif_dataset$final_HIT_Assessment)
+
+skim(raw_greif_dataset)
+
+# visualizing the overall data structure
+vis_miss(raw_greif_dataset)
+vis_dat(raw_greif_dataset)
+
+```
+
+### Coding HIPA varaibles based on the HIPA_assessment variable
+
+```{r}
+
+## recode for HIPA_DK
+raw_greif_dataset$HIPA_DK <- 0
+
+raw_greif_dataset$HIPA_DK <- na_if(raw_greif_dataset$final_HIT_Assessment, 'A6' )
+
+raw_greif_dataset$HIPA_DK <- dplyr::recode(raw_greif_dataset$final_HIT_Assessment, A1 = 0, A2 = 1, A3 = 1, A4 = 0, A5 = 0 )
+
+class(raw_greif_dataset$HIPA_DK)
+
+raw_greif_dataset$HIPA_DK <- as.factor(raw_greif_dataset$HIPA_DK)
+
+class(raw_greif_dataset$HIPA_DK)
+
+```
+### Count OD above 0.5 and a control (HIPA_DK == 0)
+
+```{r}
+dplyr::count(raw_greif_dataset, HIPA_DK)
+raw_greif_dataset %>% count(IgG > 0.5 & HIPA_DK == 0)
+
+```
+
+### Create gender variable: Count to make sure sex & gender variables are equal
+```{r}
+dplyr::count(raw_greif_dataset, sex)
+raw_greif_dataset %>% group_by(sex) %>% summarise(n = n())
+
+raw_greif_dataset$gender <- if_else(raw_greif_dataset$sex == 'm', 1,
+                                                        if_else(raw_greif_dataset$sex == 'f',2, NA_real_))
+
+dplyr::count(raw_greif_dataset, gender)
+raw_greif_dataset$gender <- as.factor(raw_greif_dataset$gender)
+
+```
+
+### OD variable mutation
+```{r}
+class(raw_greif_dataset$IgG)
+raw_greif_dataset$OD_pos <- if_else(raw_greif_dataset$IgG > 0.5, 1, if_else(raw_greif_dataset$IgG < 0.5, 0, NA_real_))
+
+# Remove individuals with missing OD values 
+precull <- count(raw_greif_dataset)
+raw_greif_dataset <- filter(raw_greif_dataset, !is.na(IgG))
+postcull <- count(raw_greif_dataset)
+precull
+postcull
+
+
+```
+
+
+
+### Create Tables - Table 1 & Table 2
+
+```{r}
+varss <- c("age", "gender", "IgG","IgA", 'IgM', "HIPA_DK", "OD_pos")
+cat_varss <- c("gender", "HIPA_DK", "OD_pos")
+
+tab1_greif <- CreateTableOne(vars = varss, data = raw_greif_dataset, factorVars = cat_varss)
+tab1_greif
+
+
+tab1_1_greif <- CreateTableOne(vars = varss, data = raw_greif_dataset, factorVars = cat_varss, strata = c('HIPA_DK'), testApprox = chisq.test, testNonNormal = T, includeNA = F)
+tab1_1_greif
+
+tab1_2 <- CreateTableOne(vars = varss, data = raw_greif_dataset, factorVars = cat_varss, strata = c('gender'), testApprox = chisq.test, testNonNormal = T)
+tab1_2
+```
+## IgG quantification: Linear models for looking at assocations between IgG (outcome variable) against numerous predictor variables
+
+### IgG and age
+```{r}
+#age
+lin_igg <- lm (IgG ~ age, data = raw_greif_dataset)
+summary(lin_igg)
+#convert betas
+exp(coef(lin_igg_gender_adj))
+
+
+#age adjusted for gender
+lin_igg_gender_adj <- lm (IgG ~ age + gender, data = raw_greif_dataset)
+summary(lin_igg_gender_adj)
+
+#convert betas
+exp(coef(lin_igg_gender_adj))
+
+# Check for homosketasticity of residuals
+
+ggplot() + geom_point(aes(x = raw_greif_dataset$age, y = lin_igg$residuals))
+
+# Normality
+
+res <- lin_igg$residuals
+res <- data.frame(res)
+
+# GGplot of normality
+
+ggplot(data = res, aes(res)) + geom_histogram(aes(y = ..density..), binwidth = .1, color = "blue") +
+  stat_function(fun = dnorm, args = list(mean = mean(res$res), sd = sd(res$res)))
+
+# Interaction between age and gender
+lin_igg_age_gender <- lm (IgG ~ age*gender, data = raw_greif_dataset)
+summary(lin_igg_age_gender)
+
+interact_plot(lin_igg_age_gender, pred = age, modx = gender)
+
+lin_igg_age_gender_subset <- lm (IgG ~ age*gender, data = raw_greif_dataset, subset = IgG > 0.5)
+summary(lin_igg_age_gender_subset)
+
+interact_plot(lin_igg_age_gender_subset, pred = age, modx = gender)
+
+
+```
+### Linear Regression on age and IgG, subset of HIPA_DK
+```{r}
+
+lin_hipa_igg <- lm(IgG ~ age, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_hipa_igg)
+
+ggplot(subset(raw_greif_dataset, HIPA_DK == 1 ), aes(x = age, y = IgG)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+lin_neghipa_igg <- lm(IgG ~ age, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_neghipa_igg)
+
+ggplot(subset(raw_greif_dataset, HIPA_DK == 0 ), aes(x = age, y = IgG)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+```
+### IgG analysis with "positive" IgG patients
+
+```{r}
+# Linear regression on filter IgG
+
+lin_igg_pos_subset <- lm (IgG ~ age, data = raw_greif_dataset, subset = IgG > 0.5)
+summary(lin_igg_pos_subset)
+exp(coef(lin_igg_pos_subset))
+exp(confint(lin_igg_pos_subset))
+
+ggplot(data = subset(raw_greif_dataset, IgG > 0.5), aes(x = age, y = IgG)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+
+```
+### Linear regression on age and IgG, subset gender
+
+```{r}
+lin_age_igg_subsex <- lm(IgG ~ age, data = raw_greif_dataset, subset = gender == 1)
+
+summary(lin_age_igg_subsex)
+
+lin_age_igg_subsex_women <- lm(IgG ~ age, data = raw_greif_dataset, subset = gender == 2)
+
+summary(lin_age_igg_subsex_women)
+
+```
+### IgG analysis with gender
+```{r}
+lin_igg_gender <- lm (IgG ~ gender, data = raw_greif_dataset)
+summary(lin_igg_gender)
+
+raw_grief_rmna_gender <- subset(raw_greif_dataset, !is.na(gender))
+
+g <- ggplot(data =raw_grief_rmna_gender , aes(y = IgG, x = sex, fill = sex)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = IgG, color = sex), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.25) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+g
+
+
+# Lineary regression on gender and IgG, subset HIPA_DK
+
+lin_sex_igg_hipasub <- lm(IgG ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_sex_igg_hipasub)
+
+
+h <- ggplot(subset(raw_grief_rmsex, HIPA_DK == 1), aes(y = IgG, x = sex, fill = sex)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = IgG, color = sex), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.25) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+h
+
+# Linear regression on gender and IgG, subset HIPA negative patients
+
+lin_sex_igg_hipaneg <- lm(IgG ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_sex_igg_hipaneg)
+
+k <- ggplot(subset(raw_grief_rmsex, HIPA_DK == 0), aes(y = IgG, x = sex, fill = sex)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = IgG, color = sex), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2.25) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+k
+```
+
+### Linear regression with IgM 
+```{r}
+lin_age_igm <- lm(IgM ~ age, data = raw_greif_dataset)
+summary(lin_age_igm)
+
+# Plot the regression line
+ggplot(data = raw_greif_dataset, aes(x = age, y = IgM)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+# Regression on age, subset HIPA positive individuals
+lin_age_igm_hipasub <- lm(IgM ~ age, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_age_igm_hipasub)
+
+# Regression on age, subset HIPA negative individuals 
+lin_age_igm_hipaneg <- lm(IgM ~ age, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_age_igm_hipaneg)
+
+# Regression on age, subset antibody (IgM) positive 
+lin_age_igm_pos <- lm(IgM ~ age, data = raw_greif_dataset, subset = IgM > 0.5)
+summary(lin_age_igm_pos)
+
+
+# GENDER REGRESSION
+
+lin_gender_igm <- lm(IgM ~ gender, data = raw_greif_dataset)
+summary(lin_gender_igm)
+
+# Regression on gender, subset HIPA positive individuals
+lin_gender_igm_hipasub <- lm(IgM ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_gender_igm_hipasub)
+
+# Regression on age, subset HIPA negative individuals 
+lin_gender_igm_hipaneg <- lm(IgM ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_age_igm_hipaneg)
+
+# Regression on age, subset antibody (IgM) positive 
+lin_gender_igm_pos <- lm(IgM ~ gender, data = raw_greif_dataset, subset = IgA > 0.5)
+summary(lin_age_igm_pos)
+
+```
+
+
+
+### Regression on IgA variable 
+```{r}
+lin_age_iga <- lm(IgA ~ age, data = raw_greif_dataset)
+summary(lin_age_iga)
+
+# Plot of association
+ggplot(data = raw_greif_dataset, aes(x = age, y = IgA)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
+
+# Regression on age, subset HIPA positive individuals
+lin_age_iga_hipasub <- lm(IgA ~ age, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_age_iga_hipasub)
+
+# Regression on age, subset HIPA negative individuals 
+lin_age_iga_hipaneg <- lm(IgA ~ age, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_age_iga_hipaneg)
+
+# Regression on age, subset antibody (IgM) positive 
+lin_age_iga_pos <- lm(IgA ~ age, data = raw_greif_dataset, subset = IgA > 0.5)
+summary(lin_age_iga_pos)
+
+
+## GENDER association 
+
+
+lin_gender_iga <- lm(IgA ~ gender, data = raw_greif_dataset)
+summary(lin_gender_igm)
+
+# Regression on gender, subset HIPA positive individuals
+lin_gender_iga_hipasub <- lm(IgA ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 1)
+summary(lin_gender_iga_hipasub)
+
+# Regression on age, subset HIPA negative individuals 
+lin_gender_iga_hipaneg <- lm(IgA ~ gender, data = raw_greif_dataset, subset = HIPA_DK == 0)
+summary(lin_gender_iga_hipaneg)
+
+# Regression on age, subset antibody (IgA) positive 
+lin_gender_iga_pos <- lm(IgA ~ gender, data = raw_greif_dataset, subset = IgA > 0.5)
+summary(lin_gender_iga_pos)
+```
+
+### Correlation Analysis
+```{r}
+
+igg <- raw_greif_dataset$IgG
+iga <- raw_greif_dataset$IgA
+igm <- raw_greif_dataset$IgM
+
+cor(igg,iga,use = 'complete.obs', method = c('spearman'))
+
+cor(igg,igm,use = 'complete.obs', method = c('spearman'))
+
+cor(iga,igm,use = 'complete.obs', method = c('spearman'))
+
+cor_matrx <- matrix(c(raw_greif_dataset$IgG,raw_greif_dataset$IgA, raw_greif_dataset$IgM), ncol = 3, byrow = T)
+
+crr <- cor(cor_matrx, use = 'complete.obs', method = c('spearman'))
+corrplot(crr, method= 'number', is.corr = T)
+
+
+cor_datafram<- data.frame(raw_greif_dataset$IgG,raw_greif_dataset$IgA, raw_greif_dataset$IgM)
+
+crr <- cor(cor_datafram, use = 'complete.obs', method = c('spearman'))
+corrplot(crr, method= 'number', is.corr = T)
+```
+
+## Logistic Regression on HIPA - Table 3
+
+### GLM on age
+```{r}
+
+class(raw_greif_dataset$HIPA_DK)
+
+lo_hipa_age_greif <- glm(as.factor(HIPA_DK) ~ age, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+summary(lo_hipa_age_greif)
+exp(coef(lo_hipa_age_greif))
+or_glm(raw_greif_dataset,lo_hipa_age_greif, incr = list(age = 1))
+
+l <- ggplot(data = subset(raw_greif_dataset, !is.na(raw_greif_dataset$HIPA_DK)), aes(y = age, x = as.factor(HIPA_DK), fill = as.factor(HIPA_DK))) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = age, color = as.factor(HIPA_DK)), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+l
+```
+
+
+### GLM on Gender
+```{r}
+
+lo_hipa_sex_greif <- glm(HIPA_DK ~ gender, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+summary(lo_hipa_sex_greif)
+exp(coef(lo_hipa_sex_greif))
+
+or_glm(raw_greif_dataset,lo_hipa_sex_greif)
+
+ggplot(data = raw_greif_dataset, aes(x = HIPA_DK, fill = gender)) + geom_bar( position = 'fill')
+
+
+
+```
+
+### GLM on HIPA ~ age + sex
+```{r}
+
+
+# HIPA_DK variable 
+
+lo_hipadk_sexage <- glm(HIPA_DK ~ gender +age, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+summary(lo_hipadk_sexage)
+
+# reduced model
+lo_hipadk_red <- glm(HIPA_DK ~ 1, data = raw_greif_dataset, family  = binomial(link = 'logit'))
+summary(lo_hipadk_red)
+
+# testing if model including gender and age is statistically 'better' than reduced model
+lr.test(lo_hipadk_red, lo_hipadk_sexage)
+
+or_glm(raw_greif_dataset, lo_hipadk_sexage, incr = list(log_age = 1, gender = 1))
+```
+### GLM on optical density 
+```{r}
+lo_hipa_igg_greif <- glm(HIPA_DK ~ IgG, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+summary(lo_hipa_igg_greif)
+exp(coef(lo_hipa_igg_greif))
+
+or_glm(raw_greif_dataset,lo_hipa_igg_greif, incr = list(IgG = 1))
+
+g <- ggplot(data = raw_greif_dataset, aes(y = IgG, x = as.factor(HIPA_DK), fill = as.factor(HIPA_DK))) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = IgG, color = as.factor(HIPA_DK)), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, guides = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(fill = FALSE) +
+guides(color = FALSE) +
+scale_color_brewer(palette = "Set1") +
+scale_fill_brewer(palette = "Set1") +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+g
+
+ggsave(plot = last_plot(), filename = 'sra_od_greif.png', height = 5, width = 5)
+```
+## GLM on IgM
+
+```{r}
+reg_sra_igM__greif <- glm(HIPA_DK ~ IgM, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+
+summary(reg_sra_igM__greif)
+exp(coef(reg_sra_igM__greif))
+or_glm(raw_greif_dataset, reg_sra_igM__greif, incr = list(IgM = 1))
+```
+
+## GLM on Iga
+
+```{r}
+reg_sra_igA__greif <- glm(HIPA_DK ~ IgA, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+
+summary(reg_sra_igA__greif)
+exp(coef(reg_sra_igA__greif))
+or_glm(raw_greif_dataset, reg_sra_igA__greif, incr = list(IgA = 1))
+```
+
+
+## Stepwise backwards regression modeling, Youden's J - Table 4
+
+```{r}
+# Creating data frame with just Variable that are to be including in backwards regression and removing NAs as they are problematic in prediction models 
+
+greif_demographic_naomit <- filter(raw_greif_dataset, !is.na(IgG) & !is.na(age) & !is.na(gender) & !is.na(HIPA_DK))
+
+# Creating model
+fit1_greif <- glm(data = greif_demographic_naomit, HIPA_DK ~ IgG + gender + age, family = binomial(link = 'logit') )
+
+#Selecting of variables 
+step_model_greif <- fit1_greif %>% stepAIC(trace = T)
+# Summary stats of model
+summary(step_model_greif)
+exp(coef(step_model_greif))
+exp(confint(step_model_greif))
+# Variance inflation factor aka collinearity 
+car::vif(step_model_greif)
+
+
+# Youden's for HIPA prediction using backwards regression variables (retained)
+
+raw_greif_dataset_backwards_df <- filter(raw_greif_dataset, !is.na(IgG) & !is.na(HIPA_DK) & !is.na(gender)) 
+
+fit2_greif <- glm(data = raw_greif_dataset_backwards_df, HIPA_DK ~ IgG + gender, family = binomial(link = 'logit'))
+
+forward_step_preds_greif <- predict(fit2_greif)
+
+raw_greif_dataset_backwards_df$predictor_stepwise <- forward_step_preds_greif
+raw_greif_dataset_backwards_df$outcome_stepwise <- raw_greif_dataset_backwards_df$HIPA_DK
+
+cut_youdens_stepwise_greif <- cutpointr(raw_greif_dataset_backwards_df, predictor_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_stepwise_greif)
+
+
+# Youden's for HIPA prediction with just IgG variable
+
+fit3_greif <- glm(data = raw_greif_dataset_backwards_df, HIPA_DK ~ IgG, family = binomial(link = 'logit'))
+
+forward_step_igg_greif <- predict(fit3_greif)
+
+raw_greif_dataset_backwards_df$predictor_igg_stepwise <- forward_step_igg_greif
+raw_greif_dataset_backwards_df$outcome_stepwise <- raw_greif_dataset_backwards_df$HIPA_DK
+
+cut_youdens_igg_greifwald <- cutpointr(raw_greif_dataset_backwards_df, predictor_igg_stepwise, outcome_stepwise, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_igg_greifwald)
+
+
+# COMPARING IF THE FULL MODEL DOES BETTER AT PREDICTION VS. JUST ANTIBODY ALONE
+
+reg_sra_igg_grief <- glm(HIPA_DK ~ IgG, data = raw_greif_dataset_backwards_df, family = binomial(link = 'logit'))
+stepwise_reg_model_greif <- glm(data = raw_greif_dataset_backwards_df, HIPA_DK ~ IgG + gender, family = binomial(link = 'logit'))
+
+lr.test(stepwise_reg_model_greif, reg_sra_igg_grief)
+
+lmtest::lrtest(stepwise_reg_model_greif, reg_sra_igg_grief)
+
+AIC(stepwise_reg_model_greif,reg_sra_igg_grief)
+```
+
+
+
+
+
+
+
+## Youdens J and ROC for best dichotimizing for IgG and HIPA - Table 5
+
+```{r}
+# creating subset dataframe for only necessary variables
+optimal_cut_youdens_greif_df <- raw_greif_dataset %>% dplyr::select(IgG, HIPA_DK, gender)
+
+greif_optimal_cut_df <- optimal_cut_youdens_greif_df %>% dplyr::select(predictor = IgG, outcome = HIPA_DK) %>% mutate(cohort = 'Greif')
+
+class(greif_optimal_cut_df)
+
+greif_optimal_cut_df <- as.data.frame(greif_optimal_cut_df)
+
+class(greif_optimal_cut_df)
+
+# Running cutpointr to find optimal cutpoint 
+cut_youdens_grief <- cutpointr(greif_optimal_cut_df, predictor, outcome, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_grief)
+plg <- plot_metric(cut_youdens_grief)
+
+plg + ggtitle('Grief - Antibody Cutpoint for HIT Determination') + theme_minimal()
+
+# Manual Cutpoints
+
+optimal_cut_youdens_greif_df$predictor <- optimal_cut_youdens_greif_df$IgG
+optimal_cut_youdens_greif_df$outcome <- optimal_cut_youdens_greif_df$HIPA_DK
+
+cut_youdens_manual_0.4 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 0.4, na.rm = T)
+
+summary(cut_youdens_manual_0.4)
+
+
+cut_youdens_manual_1.0 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.0, na.rm = T)
+
+summary(cut_youdens_manual_1.0)
+
+cut_youdens_manual_1.5 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 1.5, na.rm = T)
+
+summary(cut_youdens_manual_1.5)
+
+cut_youdens_manual_2.0 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.0, na.rm = T)
+
+summary(cut_youdens_manual_2.0)
+
+cut_youdens_manual_2.5 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 2.5, na.rm = T)
+
+summary(cut_youdens_manual_2.5)
+
+cut_youdens_manual_3.0 <- cutpointr(greif_optimal_cut_df, predictor, outcome, cohort, method = oc_manual, cutpoint = 3.0, na.rm = T)
+
+summary(cut_youdens_manual_3.0)
+
+```
+
+
+
+
+
+
+
+## Including OD, age and gender (common variables in all 3 cohorts)
+
+```{r}
+reg_sra_od_age_gender_greif <- glm(HIPA_DK ~ gender + age + IgG, data =  raw_greif_dataset, family = binomial(link =  'logit'))
+
+summary(reg_sra_od_age_gender_greif)
+exp(coef(reg_sra_od_age_gender_greif))
+or_glm(raw_greif_dataset, reg_sra_od_age_gender_greif, incr = list(IgG = 1, age = 1))
+```

@@ -1,0 +1,959 @@
+---
+title: "Combined Cohort Analysis"
+author: "Jason Giles"
+date: "2023-06-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Creating environment for analysis of all 3 cohorts
+## This files must be ran after the generation of the dataframes for the 3 cohorts
+
+```{r}
+library(tidyverse)
+library(pscl)
+library(MESS)
+library(haven)
+library(here)
+library(psych)
+library(skimr)
+library(DataExplorer)
+library(visdat)
+library(mdscore)
+library(oddsratio)
+library(ppcor)
+library(corrplot)
+library(corrr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(Hmisc)
+library(RColorBrewer)
+library(reshape2)
+library(PupillometryR)
+library(corrplot)
+library(corrr)
+library(MASS)
+library(bestNormalize)
+library(readxl)
+library(car)
+library(tableone)
+library(olsrr)
+library(MASS)
+library(cutpointr)
+library(car)
+library(OptimalCutpoints)
+library(lmtest)
+library(pROC)
+library(pastecs)
+
+here()
+```
+
+### Merging the cohorts to make one unified dataframe
+```{r}
+greif_subset <- raw_greif_dataset %>% dplyr::select('ID', 'gender','age','IgG','HIPA_DK', 'OD_pos')
+greif_subset$cohort <- 'greifswald'
+
+greif_subset <- greif_subset %>% rename(functional_assay = 'HIPA_DK', OD = 'IgG')
+
+mcmaster_subset <- raw_mcmaster_dataset %>% dplyr::select('new_abo','SEX','age','SRA','OD','OD_pos')
+mcmaster_subset$cohort <- 'mcmaster'
+
+mcmaster_subset <- mcmaster_subset %>% rename(ID = "new_abo",gender = "SEX", functional_assay = "SRA")
+
+tours_subset <- raw_tours_dataset %>% dplyr::select("FID","age", "gender","OD","SRAnew2" ,"OD_pos")
+tours_subset$cohort <- 'tours'
+
+tours_subset <- tours_subset %>% rename(functional_assay = "SRAnew2", ID = "FID")
+
+
+combined_subset <- bind_rows(greif_subset, tours_subset, mcmaster_subset)
+
+dplyr::count(combined_subset, OD > 3)
+
+```
+### Rainbow plotting
+
+```{r}
+raincloud_theme = theme(
+text = element_text(size = 10),
+axis.title.x = element_text(size = 16),
+axis.title.y = element_text(size = 16),
+axis.text = element_text(size = 14),
+axis.text.x = element_text(angle = 45, vjust = 0.5),
+legend.title=element_text(size=16),
+legend.text=element_text(size=16),
+legend.position = "right",
+plot.title = element_text(lineheight=.8, face="bold", size = 16),
+panel.border = element_blank(),
+panel.grid.minor = element_blank(),
+panel.grid.major = element_blank(),
+axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
+axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'))
+
+# Summary statsitics for the plots
+
+lb <- function(x) mean(x) - sd(x)
+ub <- function(x) mean(x) + sd(x)
+
+```
+
+
+### LEVENE test for homogeniety of variance
+```{r}
+# Test for antibody titer values across cohorts
+leveneTest(combined_subset$OD, combined_subset$cohort)
+
+
+# Test for age across cohorts
+leveneTest(combined_subset$age, combined_subset$cohort)
+
+## TESTING DIFFERENCES IN MCMASTER AND GREIFSWALD
+
+# Test for antibody titer values across cohorts
+leveneTest(combined_subset$OD[combined_subset$cohort != 'tours'], combined_subset$cohort[combined_subset$cohort != 'tours'])
+
+# Test for age across cohorts
+leveneTest(combined_subset$age[combined_subset$cohort != 'tours'], combined_subset$cohort[combined_subset$cohort != 'tours'])
+
+
+
+## TESTING DIFFERENCES IN MCMASTER AND TOURS
+
+# Test for antibody titer values across cohorts
+leveneTest(combined_subset$OD[combined_subset$cohort != 'greifswald'], combined_subset$cohort[combined_subset$cohort != 'greifswald'])
+
+# Test for age across cohorts
+leveneTest(combined_subset$age[combined_subset$cohort != 'greifswald'], combined_subset$cohort[combined_subset$cohort != 'greifswald'])
+
+
+## TESTING DIFFERENCES IN GREIFSWALD AND TOURS
+
+# Test for antibody titer values across cohorts
+leveneTest(combined_subset$OD[combined_subset$cohort != 'mcmaster'], combined_subset$cohort[combined_subset$cohort != 'mcmaster'])
+
+# Test for age across cohorts
+leveneTest(combined_subset$age[combined_subset$cohort != 'mcmaster'], combined_subset$cohort[combined_subset$cohort != 'mcmaster'])
+
+```
+### Test if Age and OD is normally distributed
+```{r}
+# McMaster Cohort
+shapiro.test(combined_subset$OD[combined_subset$cohort == 'mcmaster'])
+qqnorm(combined_subset$OD[combined_subset$cohort == 'mcmaster'])
+qqline(combined_subset$OD[combined_subset$cohort == 'mcmaster'])
+
+# Greifswald Cohort
+shapiro.test(combined_subset$OD[combined_subset$cohort == 'greifswald'])
+qqnorm(combined_subset$OD[combined_subset$cohort == 'greifswald'])
+qqline(combined_subset$OD[combined_subset$cohort == 'greifswald'])
+
+# Tours Cohort
+shapiro.test(combined_subset$OD[combined_subset$cohort == 'tours'])
+qqnorm(combined_subset$OD[combined_subset$cohort == 'tours'])
+qqline(combined_subset$OD[combined_subset$cohort == 'tours'])
+
+```
+
+### Data is non-parametric: Must use a non-parametric homogeneity test
+
+```{r}
+# Perform the Fligner-Killeen test
+result <- fligner.test(combined_subset$OD ~ combined_subset$cohort, combined_subset)
+
+# Print the test result
+print(result)
+
+# Test on McMaster vs Greifswald 
+
+result <- fligner.test(combined_subset$OD[combined_subset$cohort != 'tours'], combined_subset$cohort[combined_subset$cohort != 'tours'])
+
+# Print the test result
+print(result)
+
+# age variance test 
+result <- fligner.test(combined_subset$age ~ combined_subset$cohort, combined_subset)
+
+# Print the test result
+print(result)
+
+# Age mcmaster vs greifswald
+result <- fligner.test(combined_subset$age[combined_subset$cohort != 'tours'], combined_subset$cohort[combined_subset$cohort != 'tours'])
+
+# Print the test result
+print(result)
+
+
+# Age tours vs greifswald
+result <- fligner.test(combined_subset$age[combined_subset$cohort != 'mcmaster'], combined_subset$cohort[combined_subset$cohort != 'mcmaster'])
+
+# Print the test result
+print(result)
+
+# Age tours vs mcmaster
+result <- fligner.test(combined_subset$age[combined_subset$cohort != 'greifswald'], combined_subset$cohort[combined_subset$cohort != 'greifswald'])
+
+# Print the test result
+print(result)
+```
+
+### Testing of boot.heterogeneity package
+```{r}
+confint(gender_HIT_hetero)
+
+# Effect sizes and SE accross 3 cohorts for OD ~ HIT: Greif, Tours, McMaster
+
+yi <- c(2.73923,2.9976,3.9481)
+sei <- c(0.08337,0.2202, 0.1758)
+di <- c(1,2,3)
+# Random effects model for heterogeneity
+OD_HIT_hetero <- rma(yi = yi, sei = sei, method = 'REML', measure = 'OR', digits = 16)
+OD_HIT_hetero
+
+confint(OD_HIT_hetero)
+
+```
+
+### Coefficient of variation analysis
+```{r}
+
+
+# Create an empty vector to store the cov values
+cov <- numeric(nrow(raw_mcmaster_dataset))
+
+raw_mcmaster_dataset$cov <- NA
+raw_mcmaster_dataset$cov_per <- NA
+
+# Loop through each row in the dataframe
+for (i in 1:nrow(raw_mcmaster_dataset)) {
+  # Calculate the mean for the row
+  row_mean <- mean(c(raw_mcmaster_dataset$IgG[i], raw_mcmaster_dataset$IgP[i]))
+
+  # Calculate the standard deviation for the row
+  row_sd <- sd(c(raw_mcmaster_dataset$IgG[i], raw_mcmaster_dataset$IgP[i]))
+
+  # Calculate the coefficient of variation (cov)
+  row_cov <- row_sd / row_mean
+
+  # Assign the cov value to the corresponding index in the "cov" vector
+  raw_mcmaster_dataset$cov[i] <- row_cov
+  
+  # assign the cov to a percentage
+  raw_mcmaster_dataset$cov_per[i] <- row_cov*100
+}
+
+# Print the "cov" values
+print(raw_mcmaster_dataset$cov)
+print(raw_mcmaster_dataset$cov_per)
+mean(raw_mcmaster_dataset$cov, na.rm = T)
+dplyr:: count(raw_mcmaster_dataset, is.na(cov))
+min(raw_mcmaster_dataset$cov, na.rm = T)
+max(raw_mcmaster_dataset$cov, na.rm = T)
+
+dplyr:: count(raw_mcmaster_dataset, cov < .30)
+
+filter(raw_mcmaster_dataset, SRA == 1) %>% count(cov_per < 30)
+
+ggplot(raw_mcmaster_dataset, aes(x= cov)) +
+  geom_histogram(bins = 100, colour="black", fill="white")+
+  geom_density(alpha=.2, fill="#FF6666") +
+  labs(x = "Covariance value", y = "Count") +
+  ggtitle("Plot of Covariate Values") +
+  geom_vline(aes(xintercept=0.35),
+            color="blue", linetype="dashed", size=1)
+
+
+
+
+
+
+
+# Publication quality 
+
+# Subset the data
+subset_data <- subset(raw_mcmaster_dataset, !is.na(SRA))
+
+# Set theme options for publication quality
+theme_set(theme_bw())
+theme_update(plot.title = element_text(size = 16, face = "bold"),
+             axis.title = element_text(size = 14),
+             axis.text = element_text(size = 12),
+             legend.title = element_text(size = 12),
+             legend.text = element_text(size = 12))
+
+# Create the plot
+
+ggplot(subset_data, aes(x = cov, fill = SRA)) +
+  geom_histogram(bins = 100, colour = "black") +
+  geom_density(alpha = 0.6, fill = "#F9F7C5") +
+  labs(x = "Coefficient of Variation", y = "Count") +
+  ggtitle("") +
+  geom_vline(aes(xintercept = 0.35), color = "blue", linetype = "dashed", size = 1) +
+  guides(fill = guide_legend(title = "SRA Group")) +
+  scale_fill_discrete(labels=c('Negative', 'Positive')) + 
+  theme(legend.position = "right")
+
+
+ggplot(subset_data, aes(x = cov, fill = SRA)) +
+  geom_histogram(bins = 100, colour = "black") +
+  geom_density(alpha = 0.6, fill = "#F9F7C5") +
+  labs(x = "Coefficient of Variance", y = "Count") +
+  ggtitle("") +
+  geom_vline(aes(xintercept = 0.35), color = "blue", linetype = "dashed", size = 1) +
+  guides(fill = guide_legend(title = "Functional \nAssay")) +
+  scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+  theme(legend.position = "right",
+        panel.grid = element_blank(),
+        plot.margin = margin(1, 1, 1, 1, "cm"),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill = NA))
+
+# REmove the line from the graph
+ggplot(subset_data, aes(x = cov, fill = SRA)) +
+  geom_histogram(bins = 100, colour = "black") +
+  labs(x = "Coefficient of Variation", y = "Count") +
+  ggtitle("") +
+  guides(fill = guide_legend(title = "Functional \nAssay")) +
+  scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+  theme(legend.position = "right") +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank())
+
+# Save the plot as a publication-quality image
+ggsave(here("../Figures/Figure_COV_06_09_23.jpeg"),plot = last_plot(), width = 7, height = 7, units = 'in' , dpi = 600)
+
+# Figure 2B
+```
+### Spearman correlation Coefficient
+```{r}
+
+cor_result <- cor.test(raw_mcmaster_dataset$IgG, raw_mcmaster_dataset$IgP, type = "spearman")
+cor_result
+cor_value <- cor_result$estimate
+cor_value
+
+p_value <- cor_result$p.value
+p_value
+
+
+ggplot(raw_mcmaster_dataset, aes(x = IgG, y = IgP)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgP") +
+  ggtitle("Scatter Plot with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value, 3), "p =", cor_result$p.value),
+            hjust = 1.5, vjust = -2, size = 4, color = "blue")
+
+ggplot(raw_mcmaster_dataset, aes(x = IgG, y = IgP)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  coord_cartesian(xlim = c(0,4.5), ylim = c(0,4.5)) +
+  labs(x = "IgG", y = "IgP") +
+  ggtitle("Scatter Plot with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value, 3), "p =", cor_result$p.value),
+            hjust = 1.5, vjust = -2, size = 4, color = "blue")
+
+
+ggplot(raw_mcmaster_dataset, aes(x = IgG, y = IgP)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = TRUE) +
+  coord_cartesian(xlim = c(0,4.5), ylim = c(0,4.5)) +
+  labs(x = "IgG", y = "IgP") +
+  ggtitle("Scatter Plot with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value, 3), "p =", cor_result$p.value),
+            hjust = 1.5, vjust = -2, size = 4, color = "blue")
+
+#---------------------- subsetting/ grouping by SRA status
+
+
+       
+ggplot(subset(raw_mcmaster_dataset, !is.na(SRA)), aes(x = IgG, y = IgP)) +
+  geom_point(color='black', shape=21, size=4, aes(fill=factor(SRA))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Monoclonal ELISA (IgG)", y = "Polyclonal ELISA (IgA/G/M)") +
+  ggtitle("") +
+  guides(fill = guide_legend(title = "Functional \nAssay")) +
+  scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+  geom_text(x = Inf, y = -Inf, label = paste0("Rho = ", round(cor_value, 3), ", P < 2.2e-16 "),
+            hjust = 2, vjust = -35, size = 6, color = "black", parse = F) +
+  theme(panel.background = element_blank())
+
+
+  
+ggsave(here("../Figures/Figure_igg_v_igp_06_05_23.jpeg"), plot = last_plot(), width = 7, height = 7, units = 'in' , dpi = 600)
+
+#Figure 2A
+```
+
+### Correlation coefficent with Greifswald IgA with IgG
+```{r}
+greif_neg_od_rm <- filter(raw_greif_dataset, IgG > 0, IgA > 0)
+
+cor_result_greif_igg_iga <- cor.test(greif_neg_od_rm$IgG, greif_neg_od_rm$IgA, type = "spearman")
+cor_result_greif_igg_iga
+
+cor_value_greif_igg_iga <- cor_result_greif_igg_iga$estimate
+cor_value_greif_igg_iga
+
+cor_p_value_greif_igg_iga <- cor_result_greif_igg_iga$p.value
+cor_p_value_greif_igg_iga
+
+
+ggplot(greif_neg_od_rm, aes(x = IgG, y = IgA)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgA") +
+  ggtitle("Scatter Plot of IgA and IgG with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_iga, 3), "p =", cor_result_greif_igg_iga$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+
+ggplot(greif_neg_od_rm, aes(x = IgG, y = IgA)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(x = "IgG", y = "IgA") +
+  ggtitle("Scatter Plot of IgA and IgG with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_iga, 3), "p =", cor_result_greif_igg_iga$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+#--------------------------------------- subsetting by HIPA status
+
+ggplot(subset(greif_neg_od_rm, !is.na(HIPA_DK)), aes(x = IgG, y = IgA)) +
+  geom_point(color='black', shape=21, size=2, aes(fill=factor(HIPA_DK))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgA") +
+  ggtitle("") +
+  guides(fill = guide_legend(title = "Functional \nAssay")) +
+  scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+  geom_text(x = Inf, y = -Inf, label = paste0("Rho = ", round(cor_value_greif_igg_iga, 3), ", P < 2.2e-16"),
+            hjust = 1.9, vjust = -35, size = 6, color = "black") +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank())
+
+
+# Save the plot as a publication-quality image
+ggsave(here("../Figures/Figure_igg_v_iga_06_05_23.jpeg"),plot = last_plot(), width = 7, height = 7, units = 'in' , dpi = 600)
+#Figure 2C
+```
+
+### Correlation coefficent with Greifswald Igm  with IgG
+```{r}
+
+
+cor_result_greif_igg_IgM <- cor.test(greif_neg_od_rm$IgG, greif_neg_od_rm$IgM, type = "spearman")
+cor_result_greif_igg_IgM
+cor_value_greif_igg_IgM <- cor_result_greif_igg_IgM$estimate
+cor_value_greif_igg_IgM
+
+cor_p_value_greif_igg_IgM <- cor_result_greif_igg_IgM$p.value
+cor_p_value_greif_igg_IgM
+
+
+ggplot(greif_neg_od_rm, aes(x = IgG, y = IgM)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgM") +
+  ggtitle("Scatter Plot of IgM and IgG with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+
+ggplot(greif_neg_od_rm, aes(x = IgG, y = IgM)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(x = "IgG", y = "IgM") +
+  ggtitle("Scatter Plot of IgM and IgG with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -40, size = 4, color = "blue")
+
+
+#--------------------------------------- subsetting by HIPA status
+
+ggplot(subset(greif_neg_od_rm, !is.na(HIPA_DK)), aes(x = IgG, y = IgM)) +
+  geom_point(color='black', shape=21, size=2, aes(fill=factor(HIPA_DK))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgM") +
+  ggtitle("Scatter Plot of IgM and IgG with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+
+ggplot(subset(greif_neg_od_rm, !is.na(HIPA_DK)), aes(x = IgG, y = IgM)) +
+  geom_point(color='black', shape=21, size=2, aes(fill=factor(HIPA_DK))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgG", y = "IgM") +
+  ggtitle("") +
+  guides(fill = guide_legend(title = "Functional \nAssay")) +
+  scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+  geom_text(x = Inf, y = -Inf, label = paste0("Rho = ", round(cor_value_greif_igg_IgM, 3), ", P < 2.2e-16"),
+            hjust = 1.9, vjust = -35, size = 6, color = "black") +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank())
+
+
+# Save the plot as a publication-quality image
+ggsave(here("../Figures/Figure_igg_v_igm_06_05_23.jpeg"),plot = last_plot(), width = 7, height = 7, units = 'in' , dpi = 600)
+# FIgure 2D
+```
+### Correlation coefficent with Greifswald Igm  with IgA
+```{r}
+
+
+cor_result_greif_igg_iga <- cor.test(greif_neg_od_rm$IgA, greif_neg_od_rm$IgM, type = "spearman")
+cor_result_greif_igg_iga
+cor_value_greif_igg_iga <- cor_result_greif_igg_iga$estimate
+cor_value_greif_igg_iga
+
+cor_p_value_greif_igg_iga <- cor_result_greif_igg_iga$p.value
+cor_p_value_greif_igg_iga
+
+
+ggplot(greif_neg_od_rm, aes(x = IgA, y = IgM)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgA", y = "IgM") +
+  ggtitle("Scatter Plot of IgA and IgM with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+
+ggplot(greif_neg_od_rm, aes(x = IgA, y = IgM)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(x = "IgA", y = "IgM") +
+  ggtitle("Scatter Plot of IgA and IgM with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+
+
+#--------------------------------------- subsetting by HIPA status
+
+ggplot(subset(greif_neg_od_rm, !is.na(HIPA_DK)), aes(x = IgA, y = IgM)) +
+  geom_point(color='black', shape=21, size=2, aes(fill=factor(HIPA_DK))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "IgA", y = "IgM") +
+  ggtitle("Scatter Plot of IgM and IgA with Trendline and Confidence Intervals") +
+  geom_text(x = Inf, y = -Inf, label = paste("Spearman's rho =", round(cor_value_greif_igg_IgM, 3), "p =", cor_result_greif_igg_IgM$p.value),
+            hjust = 1.5, vjust = -28, size = 4, color = "blue")
+```
+# Correlation coefficent with McMaster IgG  with IgP
+```{r}
+raw_mcmaster_na_rm_od <- raw_mcmaster_dataset %>% drop_na(OD)
+
+cor_result_mcmaster_igg_igp <- cor.test(raw_mcmaster_na_rm_od$IgP, raw_mcmaster_na_rm_od$IgG, type = "spearman")
+cor_result_mcmaster_igg_igp
+cor_value_mcmcaster_igg_igp <- cor_result_mcmaster_igg_igp$estimate
+cor_value_mcmcaster_igg_igp
+
+cor_p_value_mcmaster_igg_igp <- cor_result_mcmaster_igg_igp$p.value
+cor_p_value_mcmaster_igg_igp
+
+
+```
+
+# Figures and Tables
+## Table 1
+
+```{r}
+
+# Just table on on McMaster
+varss_mcmaster <- c("age", "SEX", "OD","SRA", "GROUP", "RH","Surgery_Patient", "O_type", "OD_pos")
+cat_varss_mcmaster <- c("SEX", "SRA", "GROUP","RH", "Surgery_Patient", 'O_type', 'OD_pos')
+
+raw_mcmaster_od_miss_rm <- filter(raw_mcmaster_dataset, !is.na(OD))
+
+tab1_mcmaster <- CreateTableOne(vars = varss_mcmaster, data = raw_mcmaster_od_miss_rm, factorVars = cat_varss_mcmaster, includeNA = F)
+tab1_mcmaster
+
+
+### TOURS
+
+varss <- c("age", "gender", "OD","SRAnew2", "UFH", "PLT_before","CPBnew", 'OD_pos')
+cat_varss <- c("gender", "SRAnew2", "UFH","CPBnew", 'OD_pos')
+
+tours_demographic_od_miss_rm <- filter(raw_tours_dataset, !is.na(OD))
+
+
+tab1 <- CreateTableOne(vars = varss, data = tours_demographic_od_miss_rm, factorVars = cat_varss, includeNA = F)
+tab1
+
+# Greifswald
+
+varss <- c("age", "gender", "IgG","IgA", 'IgM', "HIPA_DK", "OD_pos")
+cat_varss <- c("gender", "HIPA_DK", "OD_pos")
+
+raw_greif_dataset_od_miss_rm <- filter(raw_greif_dataset, !is.na(IgG))
+
+tab1_greif <- CreateTableOne(vars = varss, data = raw_greif_dataset_od_miss_rm, factorVars = cat_varss)
+tab1_greif
+
+
+
+
+#---------------------
+
+# combined Table 1 
+
+varss <- c('gender','age','OD','OD_pos','functional_assay','cohort')
+cat_varss <- c('gender','OD_pos', 'functional_assay','cohort')
+
+tab1_all <- CreateTableOne(vars = varss, data = combined_subset, factorVars = cat_varss, strata = 'cohort', includeNA = F, testNonNormal = T)
+
+tab1_all
+```
+
+## Figure 1 - Distribution of IgG titers across cases and controls
+
+### McMaster
+```{r}
+
+dplyr::count(raw_mcmaster_dataset, is.na(OD))
+
+
+k <- ggplot(data = subset(raw_mcmaster_dataset, !is.na(SRA)), aes(y = OD, x = SRA, fill = SRA)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = SRA), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(color = "none", fill = 'none') +
+scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+scale_color_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+k
+
+k + labs(y = 'Anti-PF4/heparin Antibody Optical Density', x = NULL, title = '') + scale_x_discrete(labels = c('Negative', 'Positive')) + scale_y_continuous(breaks = round(seq(0, 5, by = 0.5),2), limits = c(0,4.5)) + theme(axis.title.x = element_text(size = 10)) 
+
+ggsave(here('../Figures/McMaster_figure1_06_05_23.jpeg'), plot = last_plot(),  dpi = 600, width = 6, height = 4)
+```
+## Tours
+```{r}
+dplyr::count(raw_tours_dataset, is.na(OD))
+
+l <- ggplot(data = subset(raw_tours_dataset, !is.na(SRAnew2)), aes(y = OD, x = SRAnew2, fill = SRAnew2)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = OD, color = SRAnew2), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(color = "none", fill = 'none') +
+scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+scale_color_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+
+l + labs(y = 'Anti-PF4/heparin Antibody Optical Density', x = NULL, title = '') + scale_x_discrete(labels = c('Negative', 'Positive')) + scale_y_continuous(breaks = round(seq(0, 5, by = 0.5),2), limits = c(0,4.5)) + theme(axis.title.x = element_text(size = 10))
+
+ggsave(here('../Figures/Tours_figure1_06_05_23.jpeg'), plot = last_plot(),
+       dpi = 600, width = 6, height = 4)
+```
+
+### Greifswald
+```{r}
+dplyr::count(raw_greif_dataset, is.na(IgG))
+
+
+m <- ggplot(data = subset(raw_greif_dataset, !is.na(HIPA_DK) & IgG > 0), aes(y = IgG, x = HIPA_DK, fill = HIPA_DK)) +
+geom_flat_violin(position = position_nudge(x = .2, y = 0), alpha = .8) +
+geom_point(aes(y = IgG, color = HIPA_DK), position = position_jitter(width = .15), size = .5, alpha = 0.8) +
+geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+expand_limits(x = 2) +
+guides(color = "none", fill = 'none') +
+scale_fill_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+scale_color_manual(values = c("salmon", "red4"), labels=c('Negative', 'Positive')) +
+coord_flip() +
+theme_bw() +
+raincloud_theme
+
+m
+
+
+m + labs(y = 'Anti-PF4/heparin Antibody Optical Density', x = NULL, title = '') + scale_x_discrete(labels = c('Negative', 'Positive')) + scale_y_continuous(breaks = round(seq(0, 5, by = 0.5),2), limits = c(0,4.5)) + theme(axis.title.x = element_text(size = 10))
+
+ggsave(here('../Figures/Greif_figure1_06_05_23.jpeg'), plot = last_plot(),
+       dpi = 600, width = 6, height = 4)
+
+```
+
+
+# Figure 4 - Cutpoint of antibody prediction model
+```{r}
+
+tours_optimal_cut_df <- raw_tours_dataset %>% dplyr::select(predictor = OD, outcome = SRAnew2) %>% mutate(cohort = 'Tours')
+
+mcmaster_optimal_cut_df <- raw_mcmaster_dataset %>% dplyr::select(predictor = OD, outcome = SRA) %>% mutate(cohort = 'McMaster')
+
+greif_optimal_cut_df <- raw_greif_dataset %>% dplyr::select(predictor = IgG, outcome = HIPA_DK) %>% mutate(cohort = 'Greifswald')
+
+combined_optimal_cut_df <- rbind(mcmaster_optimal_cut_df, tours_optimal_cut_df, greif_optimal_cut_df)
+
+combined_optimal_cut_df$cohort <- factor(combined_optimal_cut_df$cohort, levels = c("Tours",'McMaster',"Greifswald"))
+
+combined_optimal_cut_df <- subset(combined_optimal_cut_df, predictor > 0)
+cut_youdens_combined <- cutpointr(combined_optimal_cut_df, predictor, outcome, subgroup = cohort, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_combined)
+plot_roc(cut_youdens_combined)
+
+plts <- plot_metric(cut_youdens_combined)
+plts
+
+plts + ggtitle('', subtitle = '') + theme_classic() + labs(x = 'Antibody Level [OD]', y = "Youden's J", color = 'Cohort') +
+  scale_x_continuous(breaks = round(seq(0, max((combined_optimal_cut_df$predictor +0.1), na.rm = T), by = 0.5),1))
+
+plts + ggtitle('', subtitle = '') + theme_classic() + labs(x = 'Antibody Level [OD]', y = "Youden's J", color = 'Cohort') +
+  scale_x_continuous(breaks = round(seq(0, max((combined_optimal_cut_df$predictor +0.1), na.rm = T), by = 0.5),1)) +
+  scale_color_manual(values = c("Greifswald" = "red4", "McMaster" = "seagreen",  "Tours" =  'mediumblue'))
+
+ggsave(here("../Figures/Figure4_06_05_23.jpeg"), dpi = 600, height = 7, width = 7, units = 'in')
+
+
+```
+### Combining all three cohorts for total youden's J
+```{r}
+
+
+#combined_optimal_cut_df <- rbind(McMaster_df, tours_df, greif_optimal_cut_df)
+?cutpointr
+cut_youdens_combined <- cutpointr(combined_optimal_cut_df, predictor, outcome, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(cut_youdens_combined)
+
+plts <- plot_metric(cut_youdens_combined)
+plts + ggtitle('', subtitle = '') +theme_classic() + labs(x = 'Antibody Level [OD]', y = "Youden's J", color = 'Cohort')
+
+
+# Manual combined cohort cutopints 
+
+cut_youdens_combined <- cutpointr(combined_optimal_cut_df, predictor, outcome, method = oc_manual, cutpoint = 0.4, na.rm = T)
+
+summary(cut_youdens_combined)
+
+cut_youdens_combined <- cutpointr(combined_optimal_cut_df, predictor, outcome, method = oc_manual, cutpoint = 2.0, na.rm = T)
+
+summary(cut_youdens_combined)
+```
+
+
+
+# Figure 4B - Cutpoint of stepwise regression model
+```{r}
+# making dataframe without missing data
+tours_demographic_naomit <- filter(raw_tours_dataset, !is.na(OD) & !is.na(gender) & !is.na(SRAnew2))
+
+stepwise_tours <- glm(data = tours_demographic_naomit, SRAnew2 ~ OD + gender, family = binomial(link = 'logit') )
+
+coef(stepwise_tours)
+
+tours_demographic_naomit$predictor_stepwise <- predict(stepwise_tours)
+tours_demographic_naomit$outcome_stepwise <- tours_demographic_naomit$SRAnew2
+
+tours_df <- tours_demographic_naomit %>% dplyr::select(predictor_stepwise, outcome_stepwise) %>% mutate(cohort = 'Tours')
+
+
+# Greifswald cohort
+raw_greif_naomit <- filter(raw_greif_dataset, !is.na(IgG) & !is.na(gender) & !is.na(HIPA_DK))
+
+stepwise_greif <- glm(data = raw_greif_naomit, HIPA_DK ~ IgG + gender, family = binomial(link = 'logit'))
+coef(stepwise_greif)
+
+raw_greif_naomit$predictor_stepwise <- predict(stepwise_greif)
+raw_greif_naomit$outcome_stepwise <- raw_greif_naomit$HIPA_DK
+
+greif_df <- raw_greif_naomit %>% dplyr::select(predictor_stepwise, outcome_stepwise) %>% mutate(cohort = 'Greifswald')
+
+# McMaster Cohort
+
+raw_mcmaster_naomit <- filter(raw_mcmaster_dataset, !is.na(OD) & !is.na(SEX) & !is.na(SRA))
+
+stepwise_mcmaster <- glm(data = raw_mcmaster_naomit, SRA ~ OD + SEX, family = binomial(link = 'logit') )
+
+coef(stepwise_mcmaster)
+
+raw_mcmaster_naomit$predictor_stepwise <- predict(stepwise_mcmaster)
+raw_mcmaster_naomit$outcome_stepwise <- raw_mcmaster_naomit$SRA
+
+McMaster_df <- raw_mcmaster_naomit %>% dplyr::select(predictor_stepwise, outcome_stepwise) %>% mutate(cohort = 'McMaster')
+
+# Combining the datasets
+
+stepwise_model_combined_df <- rbind(tours_df, greif_df, McMaster_df)
+
+stepwise_model_combined_df_cut_youdens <- cutpointr(stepwise_model_combined_df, predictor_stepwise, outcome_stepwise,cohort, method = maximize_metric, metric = youden, na.rm = T)
+
+summary(stepwise_model_combined_df_cut_youdens)
+
+
+
+# PLOT AUC CURVE 
+
+
+roc_plt <- plot_roc(stepwise_model_combined_df_cut_youdens)
+roc_plt
+roc_plt + ggtitle('', subtitle = '') + theme_classic() + scale_color_manual(values = c(c("Greifswald" = "red4", "McMaster" = "seagreen",  "Tours" =  'mediumblue'))) + labs(color = 'Cohort') + geom_line(size = 1.5)  
+
+ggsave(here("../Figures/Figure4roc_stepwise_06_06_23.jpeg"), dpi = 600, height = 7, width = 7, units = 'in')
+
+
+
+
+```
+
+### Figure 3 Sankey image
+
+```{r}
+#devtools::install_github("davidsjoberg/ggsankey")
+library(ggsankey)
+library(dplyr)
+
+# Mcmaster dataframe generation
+data <- data.frame(Total = c(rep('Total',2720)), 
+                   Prediction = c(rep("Positive", 492), rep("Negative", 2228)),
+                   Results = c(rep("True Pos",338),rep("False Pos", 154), rep("False Neg", 10), rep('True Neg', 2218)))
+df <- data %>%
+  make_long(Total,Prediction,Results)
+
+df_nr <- 
+  df %>% 
+  filter(!is.na(node)) %>% 
+  group_by(x, node)%>% 
+  dplyr::summarise(count = n())
+
+
+# join to sankey dataframe
+
+df <- 
+  df %>% 
+  left_join(df_nr)
+
+
+
+#detach('package:plyr')
+# attempt 1
+
+
+n <- ggplot(df, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill = factor(node),
+               label = node)) +
+  geom_sankey(flow.alpha = 0.5, node.color = 1) +
+  geom_sankey_label(aes(label = paste(node,count, sep = '=')), size = 4, color = 1, fill = "white") +
+  #geom_sankey_text(aes(label = count), size = 3.5, vjust = -1, hjust = -1.50, check_overlap = T) +
+  scale_fill_viridis_d(option = "A", alpha = 0.95)  +
+  theme_sankey(base_size = 20) +  theme(legend.position = 'none') + labs(title = "McMaster Cohort") +
+  theme(plot.title = element_text(hjust = 0.5 , vjust = -7)) + theme(axis.title.x=element_blank(), axis.title.y = element_blank()) + annotate("text", x = 2, y = 800, label = "Youden's J = 0.906", size = 4) + theme(plot.title = element_text(size=20))
+
+n
+
+ggsave(here("../Figures/Figure3_McMaster.jpeg"), plot = n, width = 7, height = 7, units = 'in' , dpi = 600)
+
+ggsave(here("../Figures/Figure3_McMaster_2.jpeg"), plot = n, dpi = 600 )
+
+
+# Tours
+
+data <- data.frame(Total = c(rep('Total',828)), 
+                   Prediction = c(rep("Positive", 273), rep("Negative", 555)),
+                   Results = c(rep("True Pos",184),rep("False Pos", 89), rep("False Neg", 7), rep('True Neg', 548)))
+df <- data %>%
+  make_long(Total,Prediction,Results)
+
+df_nr <- 
+  df %>% 
+  filter(!is.na(node)) %>% 
+  group_by(x, node)%>% 
+  dplyr::summarise(count = n())
+#> `summarise()` has grouped output by 'x'. You can override using the `.groups` argument.
+
+# join to sankey dataframe
+
+df <- 
+  df %>% 
+  left_join(df_nr)
+
+
+
+#detach('package:plyr')
+# attempt 1
+
+
+o <- ggplot(df, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill = factor(node),
+               label = node)) +
+  geom_sankey(flow.alpha = 0.5, node.color = 1) +
+  geom_sankey_label(aes(label = paste(node,count, sep = '=')), size = 4, color = 1, fill = "white") +
+  #geom_sankey_text(aes(label = count), size = 3.5, vjust = -1, hjust = -1.50, check_overlap = T) +
+  scale_fill_viridis_d(option = "A", alpha = 0.95) +
+  theme_sankey(base_size = 20) +  theme(legend.position = 'none') + labs(title = "Tours Cohort") + annotate("text", x = 2, y = 150, label = "Youden's J = 0.824", size = 4) +
+  theme(plot.title = element_text(hjust = 0.5, vjust = -7)) + theme(axis.title.x=element_blank(), axis.title.y = element_blank()) + theme(plot.subtitle = element_text(hjust = 0.5))+ theme(plot.caption = element_text(hjust = 0.5)) + theme(plot.title = element_text(size=20))
+
+o
+
+
+ggsave(here("../Figures/Figure3_Tours.jpeg"), width = 4400, height = 2714, units = 'px' , plot = o)
+
+ggsave(here("../Figures/Figure3_Tours_2.jpeg"), dpi = 600, plot = o )
+
+
+
+# Greifswald
+
+data <- data.frame(Total = c(rep('Total',4500)), 
+                   Prediction = c(rep("Positive", 1453), rep("Negative", 3047)),
+                   Results = c(rep("True Pos",983),rep("False Pos", 470), rep("False Neg", 219), rep('True Neg', 2828)))
+df <- data %>%
+  make_long(Total,Prediction,Results)
+
+df_nr <- 
+  df %>% 
+  filter(!is.na(node)) %>% 
+  group_by(x, node)%>% 
+  dplyr::summarise(count = n())
+#> `summarise()` has grouped output by 'x'. You can override using the `.groups` argument.
+
+# join to sankey dataframe
+
+df <- 
+  df %>% 
+  left_join(df_nr)
+
+
+p <- ggplot(df, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill = factor(node),
+               label = node)) +
+  geom_sankey(flow.alpha = 0.5, node.color = 1) +
+  geom_sankey_label(aes(label = paste(node,count, sep = '=')), size = 4, color = 1, fill = "white") +
+  #geom_sankey_text(aes(label = count), size = 3.5, vjust = -1, hjust = -1.50, check_overlap = T) +
+  scale_fill_viridis_d(option = "A", alpha = 0.95) +
+  theme_sankey(base_size = 20) +  theme(legend.position = 'none') + labs(title = "Greifswald Cohort") +
+  theme(plot.title = element_text(hjust = 0.5, vjust = -7)) + theme(axis.title.x=element_blank(), axis.title.y=element_blank()) + 
+  annotate("text", x = 2, y = 750, label = "Youden's J = 0.675", size = 4) + theme(plot.title = element_text(size=20))
+
+p
+
+
+ggsave(here("../Figures/Figure5_Greifswald.jpeg"), dpi = 600)
+
+```
+
+
