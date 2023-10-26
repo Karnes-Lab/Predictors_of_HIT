@@ -94,6 +94,7 @@ raw_greif_dataset$HIPA_DK <- as.factor(raw_greif_dataset$HIPA_DK)
 class(raw_greif_dataset$HIPA_DK)
 
 ```
+
 ### Count OD above 0.5 and a control (HIPA_DK == 0)
 
 ```{r}
@@ -148,6 +149,7 @@ tab1_1_greif
 tab1_2 <- CreateTableOne(vars = varss, data = raw_greif_dataset, factorVars = cat_varss, strata = c('gender'), testApprox = chisq.test, testNonNormal = T)
 tab1_2
 ```
+
 ## IgG quantification: Linear models for looking at assocations between IgG (outcome variable) against numerous predictor variables
 
 ### IgG and age
@@ -193,6 +195,8 @@ interact_plot(lin_igg_age_gender_subset, pred = age, modx = gender)
 
 
 ```
+
+
 ### Linear Regression on age and IgG, subset of HIPA_DK
 ```{r}
 
@@ -206,6 +210,8 @@ summary(lin_neghipa_igg)
 
 ggplot(subset(raw_greif_dataset, HIPA_DK == 0 ), aes(x = age, y = IgG)) + geom_point() + geom_smooth(method = 'lm', formula = y ~ x, aes(col = 'lfit'))
 ```
+
+
 ### IgG analysis with "positive" IgG patients
 
 ```{r}
@@ -220,6 +226,8 @@ ggplot(data = subset(raw_greif_dataset, IgG > 0.5), aes(x = age, y = IgG)) + geo
 
 
 ```
+
+
 ### Linear regression on age and IgG, subset gender
 
 ```{r}
@@ -232,6 +240,9 @@ lin_age_igg_subsex_women <- lm(IgG ~ age, data = raw_greif_dataset, subset = gen
 summary(lin_age_igg_subsex_women)
 
 ```
+
+
+
 ### IgG analysis with gender
 ```{r}
 lin_igg_gender <- lm (IgG ~ gender, data = raw_greif_dataset)
@@ -466,6 +477,8 @@ lr.test(lo_hipadk_red, lo_hipadk_sexage)
 
 or_glm(raw_greif_dataset, lo_hipadk_sexage, incr = list(log_age = 1, gender = 1))
 ```
+
+
 ### GLM on optical density 
 ```{r}
 lo_hipa_igg_greif <- glm(HIPA_DK ~ IgG, data =  raw_greif_dataset, family = binomial(link =  'logit'))
@@ -491,6 +504,8 @@ g
 
 ggsave(plot = last_plot(), filename = 'sra_od_greif.png', height = 5, width = 5)
 ```
+
+
 ## GLM on IgM
 
 ```{r}
@@ -576,10 +591,6 @@ AIC(stepwise_reg_model_greif,reg_sra_igg_grief)
 
 
 
-
-
-
-
 ## Youdens J and ROC for best dichotimizing for IgG and HIPA - Table 5
 
 ```{r}
@@ -633,10 +644,6 @@ cut_youdens_manual_3.0 <- cutpointr(greif_optimal_cut_df, predictor, outcome, co
 summary(cut_youdens_manual_3.0)
 
 ```
-
-
-
-
 
 
 

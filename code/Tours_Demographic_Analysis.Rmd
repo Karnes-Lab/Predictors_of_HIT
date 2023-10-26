@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Installing packages and reading in data
 ```{r}
 library(pscl)
 library(tidyverse)
@@ -275,6 +276,8 @@ summary(lin_gender_od_tours_subsraneg)
 lin_gender_igg_pos_tours <- lm(OD ~ gender, data = raw_tours_dataset, subset = raw_tours_dataset$OD > 0.5)
 summary(lin_gender_igg_pos_tours)
 ```
+
+
 ### Regression on OD and Platelet count (PLT_before)
 ```{r}
 
@@ -323,6 +326,8 @@ raincloud_theme
 
 h
 ```
+
+
 ### Regression on OD and Thrombosis
 ```{r}
 lin_thromb_od_tours <- lm(OD ~ thrombosisnew, data = raw_tours_dataset)
@@ -360,6 +365,8 @@ raincloud_theme
 
 k
 ```
+
+
 ## Logistic Regression on SRA (Functional Assay [HIT]) - Table 3
 ###Funcational assay  logistic regression OD
 ```{r}
@@ -417,6 +424,8 @@ raincloud_theme
 
 m
 ```
+
+
 ###Funcational assay on gender
 ```{r}
 lo_sra_gender_tours <- glm(SRAnew2 ~ gender, data = raw_tours_dataset, family =binomial(link = 'logit'))
@@ -424,6 +433,8 @@ summary(lo_sra_gender_tours)
 exp(coef(lo_sra_gender_tours))
 or_glm(raw_tours_dataset,lo_sra_gender_tours, incr = list(age = 1))
 ```
+
+
 ### Funcational assay and PLT_before
 ```{r}
 
@@ -446,6 +457,8 @@ raincloud_theme
 
 n
 ```
+
+
 ### Funcational assay regression on unfractionated Heparin
 ```{r}
 lo_sra_ufh_tours <- glm(SRAnew2 ~ UFH, data = raw_tours_dataset, family = binomial(link = 'logit'))
@@ -456,6 +469,8 @@ or_glm(raw_tours_dataset, lo_sra_ufh_tours)
 
 summary(raw_tours_dataset$UFH)
 ```
+
+
 ### Logistic regression on SRA and surgery
 ```{r}
 lo_sra_surgery_tours <- glm(SRAnew2 ~ CPBnew, data = raw_tours_dataset, family = binomial(link = 'logit'))
@@ -464,6 +479,8 @@ exp(coef(lo_sra_surgery_tours))
 or_glm(raw_tours_dataset, lo_sra_surgery_tours)
 # did not converge....
 ```
+
+
 ## Stepwise backwards regression modeling, Youden's J - Table 4
 
 ```{r}
@@ -535,6 +552,8 @@ auc(raw_tours_dataset_backwards_df$SRAnew2, raw_tours_dataset_backwards_df$OD)
 
 
 ```
+
+
 ## Youdens J and ROC for best dichotimizing for IgG and HIPA - Table 5
 
 ```{r}

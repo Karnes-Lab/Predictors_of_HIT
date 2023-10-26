@@ -61,6 +61,8 @@ raw_mcmaster_dataset <- read_csv(here("../all_HIT_Nov29.csv"))
 raw_mcmaster_dataset <- dplyr::rename(raw_mcmaster_dataset, new_abo = "new ABO IDs", sample_year = 'Sample Year', age = 'AGE at HIT-trunc', 
                        call_for_abo = 'CALL FOR ABO', SRA = 'SRA call', IgG = 'EIA-G', IgP = "GTI-GAM")
 ```
+
+
 ### Exploring & Cleaning of the data 
 
 ```{r}
@@ -116,6 +118,8 @@ raw_mcmaster_dataset <- filter(raw_mcmaster_dataset, !is.na(OD))
 
 dplyr::count(raw_mcmaster_dataset, is.na(Surgery_Patient))
 ```
+
+
 ### Rainbow plotting
 
 ```{r}
@@ -279,6 +283,8 @@ summary(reg_sra_age_subsex_mcmaster)
 exp(coef(reg_sra_age_subsex_mcmaster))
 
 ```
+
+
 ### Logistic regression on Functional Assay (SRA) and Sex   
 ```{r}
 reg_sra_gender_mcmaster <- glm(SRA ~ SEX, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
@@ -318,6 +324,8 @@ summary(reg_sra_gender_rh)
 exp(coef(reg_sra_gender_rh))
 
 ```
+
+
 ### Logistic regression on Functional Assay (SRA) and Rhesus antigen    
 ```{r}
 reg_sra_RH_mcmaster <- glm(SRA ~ RH, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
@@ -345,6 +353,8 @@ reg_sra_RH_surgery <- glm(SRA ~ RH + Surgery_Patient, data = raw_mcmaster_datase
 summary(reg_sra_RH_surgery)
 exp(coef(reg_sra_RH_surgery))
 ```
+
+
 ### Logistic regression on Functional Assay (SRA) and Blood group   
 ```{r}
 reg_sra_abo_mcmaster <- glm(SRA ~ GROUP, data = raw_mcmaster_dataset, family = binomial(link = 'logit'))
@@ -409,6 +419,7 @@ p + scale_fill_grey() + theme_classic()
 p + geom_jitter(shape=16, position=position_jitter(0.2))
 
 ```
+
 ## Regression on SRA and non-O
 
 
@@ -443,6 +454,8 @@ exp(coef(reg_sra_group_surgery))
 
 
 ```
+
+
 ### Logistic regression on Functional Assay (SRA) and Surgery
 ```{r}
 reg_sra_surgery_mcmaster <- glm(SRA ~ Surgery_Patient, data = subset(raw_mcmaster_dataset, !is.na(Surgery_Patient)), family = binomial(link = 'logit'))
@@ -620,16 +633,6 @@ cut_youdens_manual_3.0 <- cutpointr(mcmaster_optimal_cut_df, predictor, outcome,
 summary(cut_youdens_manual_3.0)
 
 ```
-
-
-
-
-
-
-
-
-
-
 
 
 
