@@ -1,7 +1,7 @@
 # Heparin-Induced Thrombocytopenia Functional Assay Demographic Analysis
 
 ### Author: Jason Giles
-### Last Updated: August 1, 2023
+### Last Updated: Octber 26, 2023
 
 ## Set-up
 This is the master README for the demographics analysis performed on the Laboratory and demographic predictors of functional assay positive status
